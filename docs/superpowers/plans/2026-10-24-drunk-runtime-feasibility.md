@@ -82,7 +82,7 @@
 - Create: `src/cli.rs`
 
 **Interfaces:**
-- Produces: `enum Command { Doctor { json: bool } }`; `clap` provides `--version` from package metadata, while `main()` dispatches `Doctor` and exits non-zero only for an internal error or explicit unsupported invocation.
+- Produces: `enum Command { Doctor { json: bool } }`; `clap` provides `--version` from package metadata. Until Task 3 supplies the module, `main()` accepts `Doctor`, prints `doctor implementation pending` to stderr, and exits with code 2.
 
 - [ ] **Step 1: Create the Cargo package**
 
@@ -94,13 +94,13 @@
 
 - [ ] **Step 3: Implement dispatch in `src/main.rs`**
 
-  Route `Doctor` to `doctor::run(json)`. Keep stdout for the report and stderr for errors/diagnostics; rely on Clap for `--version`.
+  Route `Doctor` to a temporary `doctor implementation pending` message on stderr and exit code 2; Task 3 replaces this branch with `doctor::run(json)`. Keep stdout reserved for reports and rely on Clap for `--version`.
 
 - [ ] **Step 4: Confirm the CLI surface manually**
 
-  Run `cargo run -- --help`, `cargo run -- --version`, and `cargo run -- doctor --help`; confirm command names, output format, and unsupported invocation behavior match the interface above.
+  Run `cargo run -- --help`, `cargo run -- --version`, and `cargo run -- doctor --help`; confirm command names and unsupported invocation behavior match the interface above. Confirm `doctor` reports that its implementation is pending until Task 3.
 
-**Acceptance:** The Rust binary exposes the agreed diagnostic command surface without starting an Android runtime or touching user session data.
+**Acceptance:** The Rust binary exposes the agreed command surface and has an explicit temporary response for `doctor` without starting an Android runtime or touching user session data.
 
 ## Task 3: Implement read-only Linux diagnostics
 
