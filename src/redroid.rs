@@ -795,12 +795,34 @@ fn capture_frame(serial: &str) -> Result<image::DynamicImage, String> {
 }
 
 fn make_window_buffer(frame: &image::DynamicImage, width: u32, height: u32) -> Vec<u32> {
-    let resized =
-        image::imageops::resize(frame, width, height, image::imageops::FilterType::Triangle);
-    resized
-        .pixels()
-        .map(|pixel| (u32::from(pixel[0]) << 16) | (u32::from(pixel[1]) << 8) | u32::from(pixel[2]))
-        .collect()
+    if let Some(rgba) = frame.as_rgba8() {
+        return rgba_to_window_buffer_nearest(rgba, width, height);
+    }
+    let rgba = frame.to_rgba8();
+    rgba_to_window_buffer_nearest(&rgba, width, height)
+}
+
+fn rgba_to_window_buffer_nearest(frame: &image::RgbaImage, width: u32, height: u32) -> Vec<u32> {
+    let source_width = frame.width() as usize;
+    let source_height = frame.height() as usize;
+    let width = width as usize;
+    let height = height as usize;
+    let source = frame.as_raw();
+    let mut output = Vec::with_capacity(width.saturating_mul(height));
+
+    for y in 0..height {
+        let source_y = y * source_height / height.max(1);
+        for x in 0..width {
+            let source_x = x * source_width / width.max(1);
+            let offset = (source_y * source_width + source_x) * 4;
+            output.push(
+                (u32::from(source[offset]) << 16)
+                    | (u32::from(source[offset + 1]) << 8)
+                    | u32::from(source[offset + 2]),
+            );
+        }
+    }
+    output
 }
 
 fn android_keycode(key: minifb::Key) -> Option<u32> {
@@ -943,7 +965,25 @@ fn stopped_summary(exit_code: i32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{preview_dimensions, stopped_summary};
+    use super::{make_window_buffer, preview_dimensions, stopped_summary};
+    use image::{DynamicImage, RgbaImage};
+
+    #[test]
+    fn screenshot_preview_uses_nearest_source_pixel_without_blending() {
+        let image = RgbaImage::from_raw(
+            2,
+            2,
+            vec![
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(
+            make_window_buffer(&DynamicImage::ImageRgba8(image), 1, 1),
+            vec![0x00ff_0000]
+        );
+    }
 
     #[test]
     fn preview_dimensions_fit_portrait_android_to_host_height() {

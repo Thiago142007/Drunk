@@ -137,6 +137,24 @@ FPS, fluidez, latência ponta a ponta, uso de CPU e estabilidade por vários
 minutos não foram medidos. O uso de decoder inteiramente Rust não altera os
 gates de runtime, licenças e plataforma.
 
+### Perfil de CPU do viewer
+
+Uma medição de 30 s com `perf stat` no caminho `redroid view` identificou a
+redimensionação Triangle da crate `image` como custo dominante. No build debug,
+foram 19,27 s de `task-clock` em 30,14 s de relógio (64,0% de um núcleo lógico).
+Após trocar essa etapa por amostragem nearest-neighbor e evitar a conversão
+intermediária quando o frame já é RGBA, uma repetição debug marcou 6,85 s em
+30,14 s (22,7% de um núcleo, queda de cerca de 64%). O build release marcou
+1,09 s em 30,14 s (3,6% de um núcleo). São execuções únicas no mesmo host, sem
+medição de FPS ou latência; nearest-neighbor pode parecer menos suave ao reduzir
+a imagem.
+
+O perfil H.264 é outro caminho: `redroid stream --seconds 30` em release marcou
+13,44 s de `task-clock` em 30,16 s (44,6% de um núcleo); uma amostra debug
+anterior marcou cerca de 102%. A conversão YUV→RGB e o decoder Hibernia aparecem
+entre os custos relevantes. Uma execução por configuração não basta para
+caracterizar desempenho ou fluidez do stream.
+
 Em uma repetição posterior autorizada, `redroid stream --seconds 30` também abriu
 a janela 720×1280 e permaneceu até o limite configurado. Uma amostra de processo
 aos 28 s mostrou o Drunk em aproximadamente 92% de CPU e 1,3% de memória, com
@@ -153,9 +171,17 @@ Audio` do Android NDK Samples. GL2 desenhou o triângulo e informou ANGLE sobre
 Vulkan SwiftShader; isso é renderização por software. O botão local HELLO do
 Native Audio criou um track no AudioFlinger com rota Android `speaker`, sem
 underruns na amostra. Não se confirmou áudio audível no host e a permissão
-`RECORD_AUDIO` ficou negada. Cada app permaneceu aberto por 60 s e foi encerrado
-e relançado duas vezes sem `FATAL EXCEPTION` nos logs consultados. A captura da
-tela não mede áudio audível no host nem estabilidade prolongada do viewer.
+`RECORD_AUDIO` ficou negada. Em diagnóstico separado, scrcpy 3.3.4 no redroid
+Android 12 falhou ao iniciar captura `playback` com
+`NoSuchFieldException: MIX_ROLE_PLAYERS`; uma tentativa de gravar `output` não
+recebeu stream de áudio para criar o arquivo. Durante a reprodução, não foi
+observado sink-input no PipeWire/PulseAudio nem PCM aberto em ALSA. Isso indica
+que este runtime não forneceu um caminho de áudio capturável ao host; não é uma
+medição de som em alto-falantes. O upstream redroid também registra áudio como
+limitação conhecida e aponta a necessidade de HAL/ponte de áudio ([issue 18 do
+projeto](https://github.com/remote-android/redroid-doc/issues/18)). Cada app
+permaneceu aberto por 60 s e foi encerrado e relançado duas vezes sem
+`FATAL EXCEPTION` nos logs consultados.
 
 Não foi validado Roblox, áudio audível no host, aceleração gráfica física ou
 controle de jogo nesta experiência. Nenhuma compatibilidade é prometida. `view`
