@@ -33,6 +33,7 @@ pub fn run(command: RedroidCommand) -> Result<(), String> {
             Ok(())
         }
         RedroidCommand::Demo => demo(),
+        RedroidCommand::View => view(),
     }
 }
 
@@ -166,6 +167,185 @@ fn demo() -> Result<(), String> {
     println!("{}", output.trim());
     println!("Android Settings requested; this spike does not provide a display window.");
     Ok(())
+}
+
+fn view() -> Result<(), String> {
+    if state()?.as_deref() != Some("running") {
+        return Err(format!("{NAME} must be running before opening its display"));
+    }
+    validate_managed_container()?;
+    connect_adb()?;
+
+    let serial = ADB;
+    let first_frame = capture_frame(serial)?;
+    let source_width = first_frame.width();
+    let source_height = first_frame.height();
+    let scale = (540.0 / source_width as f32)
+        .min(900.0 / source_height as f32)
+        .min(1.0);
+    let width = ((source_width as f32 * scale).round() as u32).max(1);
+    let height = ((source_height as f32 * scale).round() as u32).max(1);
+    let mut buffer = make_window_buffer(&first_frame, width, height);
+
+    let mut window = minifb::Window::new(
+        "Drunk [PROTÓTIPO • até 4 FPS] — Android preview (Esc fecha)",
+        width as usize,
+        height as usize,
+        minifb::WindowOptions::default(),
+    )
+    .map_err(|error| format!("could not create Android display window: {error}"))?;
+    window.set_target_fps(30);
+
+    let mut previous_mouse_down = false;
+    let mut last_capture = std::time::Instant::now();
+    println!("Android preview opened at {source_width}×{source_height}; input is sent over ADB.");
+
+    while window.is_open() && !window.is_key_down(minifb::Key::Escape) {
+        window
+            .update_with_buffer(&buffer, width as usize, height as usize)
+            .map_err(|error| format!("could not update Android display window: {error}"))?;
+
+        let mouse_down = window.get_mouse_down(minifb::MouseButton::Left);
+        if mouse_down && !previous_mouse_down {
+            if let Some((x, y)) = window.get_mouse_pos(minifb::MouseMode::Discard) {
+                let android_x = (x / width as f32 * source_width as f32)
+                    .clamp(0.0, source_width.saturating_sub(1) as f32)
+                    as u32;
+                let android_y = (y / height as f32 * source_height as f32)
+                    .clamp(0.0, source_height.saturating_sub(1) as f32)
+                    as u32;
+                send_adb_input(
+                    serial,
+                    &[
+                        "shell",
+                        "input",
+                        "tap",
+                        &android_x.to_string(),
+                        &android_y.to_string(),
+                    ],
+                )?;
+            }
+        }
+        previous_mouse_down = mouse_down;
+
+        for key in window.get_keys_pressed(minifb::KeyRepeat::No) {
+            if key == minifb::Key::Escape {
+                continue;
+            }
+            if let Some(keycode) = android_keycode(key) {
+                send_adb_input(
+                    serial,
+                    &["shell", "input", "keyevent", &keycode.to_string()],
+                )?;
+            }
+        }
+
+        if last_capture.elapsed() >= std::time::Duration::from_millis(250) {
+            match capture_frame(serial) {
+                Ok(frame) if frame.width() == source_width && frame.height() == source_height => {
+                    buffer = make_window_buffer(&frame, width, height);
+                }
+                Ok(_) => {
+                    return Err(
+                        "Android display dimensions changed; close and reopen the preview".into(),
+                    );
+                }
+                Err(error) => eprintln!("display refresh failed: {error}"),
+            }
+            last_capture = std::time::Instant::now();
+        }
+    }
+    Ok(())
+}
+
+fn connect_adb() -> Result<(), String> {
+    let output = execute("adb", &["connect", ADB])?;
+    if output.contains("connected to") || output.contains("already connected to") {
+        Ok(())
+    } else {
+        Err(format!("ADB could not connect to {ADB}: {}", output.trim()))
+    }
+}
+
+fn send_adb_input(serial: &str, command: &[&str]) -> Result<(), String> {
+    let mut args = vec!["-s", serial];
+    args.extend_from_slice(command);
+    execute("adb", &args).map(|_| ())
+}
+
+fn capture_frame(serial: &str) -> Result<image::DynamicImage, String> {
+    let output = Command::new("adb")
+        .args(["-s", serial, "exec-out", "screencap", "-p"])
+        .output()
+        .map_err(|error| format!("could not execute adb screen capture: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "ADB screen capture failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    image::load_from_memory(&output.stdout)
+        .map_err(|error| format!("could not decode Android screenshot: {error}"))
+}
+
+fn make_window_buffer(frame: &image::DynamicImage, width: u32, height: u32) -> Vec<u32> {
+    let resized =
+        image::imageops::resize(frame, width, height, image::imageops::FilterType::Triangle);
+    resized
+        .pixels()
+        .map(|pixel| (u32::from(pixel[0]) << 16) | (u32::from(pixel[1]) << 8) | u32::from(pixel[2]))
+        .collect()
+}
+
+fn android_keycode(key: minifb::Key) -> Option<u32> {
+    use minifb::Key;
+    Some(match key {
+        Key::A => 29,
+        Key::B => 30,
+        Key::C => 31,
+        Key::D => 32,
+        Key::E => 33,
+        Key::F => 34,
+        Key::G => 35,
+        Key::H => 36,
+        Key::I => 37,
+        Key::J => 38,
+        Key::K => 39,
+        Key::L => 40,
+        Key::M => 41,
+        Key::N => 42,
+        Key::O => 43,
+        Key::P => 44,
+        Key::Q => 45,
+        Key::R => 46,
+        Key::S => 47,
+        Key::T => 48,
+        Key::U => 49,
+        Key::V => 50,
+        Key::W => 51,
+        Key::X => 52,
+        Key::Y => 53,
+        Key::Z => 54,
+        Key::Key0 => 7,
+        Key::Key1 => 8,
+        Key::Key2 => 9,
+        Key::Key3 => 10,
+        Key::Key4 => 11,
+        Key::Key5 => 12,
+        Key::Key6 => 13,
+        Key::Key7 => 14,
+        Key::Key8 => 15,
+        Key::Key9 => 16,
+        Key::Down => 20,
+        Key::Left => 21,
+        Key::Right => 22,
+        Key::Up => 19,
+        Key::Backspace => 67,
+        Key::Enter => 66,
+        Key::Space => 62,
+        Key::Tab => 61,
+        _ => return None,
+    })
 }
 
 fn validate_managed_container() -> Result<(), String> {

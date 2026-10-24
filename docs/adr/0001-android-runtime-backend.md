@@ -2,7 +2,7 @@
 
 **Data:** 2026-10-24 (adendo documental sobre redroid e políticas Roblox em 2026-10-24). **Decisão:** **NO-GO provisório para iniciar o runtime/produto. Backend de produto selecionado: nenhum.** O usuário autorizou um protótipo limitado com Android externo; redroid é candidato a esse spike em x86-64, não uma decisão de arquitetura do produto.
 
-**Bloqueadores visíveis:** não há runtime de produto nem inventário completo de licenças. Um spike redroid demonstrou boot Android 12, ADB, abertura de Settings e toque sintético; janela desktop, gráficos acelerados, áudio audível, instalação de APK externo e encerramento ainda não foram validados. O usuário autorizou e realizou o carregamento temporário de `binder_linux` e uso de Docker `--privileged`. A conclusão é falta de evidência suficiente para produto, não impossibilidade comprovada.
+**Bloqueadores visíveis:** não há runtime de produto nem inventário completo de licenças. Um spike redroid demonstrou boot Android 12, ADB, abertura de Settings, toque sintético e recepção de screenshot numa janela desktop Rust. Inspeção visual independente, streaming fluido, input físico, gráficos acelerados, áudio audível, instalação de APK externo e encerramento completo ainda não foram validados. O usuário autorizou e realizou o carregamento temporário de `binder_linux` e uso de Docker `--privileged`. A conclusão é falta de evidência suficiente para produto, não impossibilidade comprovada.
 
 ## Contexto
 
@@ -25,7 +25,7 @@ A inspeção de leitura inicial encontrou ADB e Sober instalado, mas não encont
 
 Em 2026-10-24, o marco conserva a decisão e os bloqueadores acima. A [seção de diagnóstico local](../runtime-evaluation.md#31-diagnóstico-de-leitura-do-primeiro-marco) registra os resultados de leitura da tarefa 3 (`dd4b143`): Linux x86-64, kernel 7.0, SSE4.1/SSE4.2 presentes, dois nós DRI e arquivos de loaders Vulkan/EGL/GL presentes. São apenas indícios de capacidade da máquina; não demonstram APIs gráficas, permissões, funcionamento de drivers ou compatibilidade Android/Roblox. RAM disponível, compositor/versão e requisitos da composição futura continuam sem verificação.
 
-O spike registrou boot Android 12, ADB, lançamento da atividade Settings e toque sintético por ADB. Não houve medição de janela desktop, aceleração gráfica, áudio audível, instalação de APK externo nem parada executada pela CLI. O gate de produto permanece reprovado, pois o spike não demonstra a composição B nem resolve manutenção e licenças.
+O spike registrou boot Android 12, ADB, lançamento da atividade Settings e toque sintético por ADB. O viewer Rust abriu uma janela e recebeu screenshots, sem inspeção visual independente ou streaming contínuo. Não houve validação de input físico, aceleração gráfica, áudio audível, instalação de APK externo nem parada executada pela CLI. O gate de produto permanece reprovado, pois o spike não demonstra a composição B nem resolve manutenção e licenças.
 
 O [resumo do marco](../runtime-evaluation.md#7-primeiro-marco-para-revisão) registra o gate. O spike redroid limitado foi executado após autorização do usuário, mas não abre o gate para runtime Roblox nem para plano de produto. Adoção de redroid, Waydroid ou outro Android completo como produto exige uma decisão de arquitetura separada; nenhuma foi tomada.
 
@@ -42,6 +42,6 @@ O [resumo do marco](../runtime-evaluation.md#7-primeiro-marco-para-revisão) reg
 
 ## Reabertura
 
-Reavaliar esta ADR com os itens que faltam no [protocolo manual](../runtime-evaluation.md#5-protocolo-manual-futuro--não-executado): janela nativa, gráficos/input/áudio registrados, instalação e lançamento de app de teste permitido, fechamento/relançamento/parada controlada e logs. Mesmo um spike bem-sucedido mantém **NO-GO de produto** até uma decisão explícita de arquitetura, manutenção/distribuição e licenças, e não demonstra compatibilidade com Roblox.
+Reavaliar esta ADR com os itens que faltam no [protocolo manual](../runtime-evaluation.md#5-protocolo-manual-futuro--não-executado): inspeção visual independente e desempenho do display, gráficos/input físico/áudio registrados, instalação e lançamento de app de teste permitido, fechamento/relançamento/parada controlada e logs. Mesmo um spike bem-sucedido mantém **NO-GO de produto** até uma decisão explícita de arquitetura, manutenção/distribuição e licenças, e não demonstra compatibilidade com Roblox.
 
 Se o único caminho demonstrado for um Android completo pronto (redroid, Waydroid ou outro), apresentar ao usuário a mudança de arquitetura e pedir decisão antes de adotá-lo como produto. A validação do app Roblox oficial, sem modificações, seria uma etapa posterior e separada, condicionada a um método permitido de obtenção/instalação. Nenhuma compatibilidade Roblox é alegada aqui.

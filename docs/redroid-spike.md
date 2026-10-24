@@ -1,8 +1,9 @@
 # Spike redroid controlado pelo Drunk
 
 Data: 2026-10-24. Este protótipo adiciona um controlador Rust pequeno para um
-Android externo. O código próprio do Drunk usa `std::process` para chamar Docker
-e ADB; a imagem Android contém componentes de terceiros e não é inteiramente Rust.
+Android externo. O código próprio do Drunk usa Rust, `minifb` e `image` para
+exibir screenshots e encaminhar eventos básicos; Docker, ADB e a imagem Android
+são componentes externos e não são inteiramente Rust.
 O **NO-GO de produto permanece**: esta execução não seleciona o backend final,
 resolve o inventário de licenças nem demonstra compatibilidade com Roblox.
 
@@ -44,6 +45,7 @@ cargo build
 target/debug/drunk redroid status
 target/debug/drunk redroid start --allow-privileged
 target/debug/drunk redroid demo
+target/debug/drunk redroid view
 target/debug/drunk redroid stop
 ```
 
@@ -62,6 +64,14 @@ target/debug/drunk redroid stop
   que o container corresponde à configuração gerenciada e rejeita configuração
   divergente. A CLI não aceita APKs,
   não instala aplicativos e não executa Roblox.
+- `view` cria uma janela Linux com `minifb`, captura o framebuffer Android como
+  PNG por ADB a cada 250 ms (até 4 FPS) e redimensiona a imagem para caber em
+  540×900. Um clique esquerdo envia `input tap`; teclas básicas (letras, números,
+  setas, Enter, espaço, Tab e Backspace) são enviadas como keyevents. Escape
+  fecha a janela. O input é encaminhado como eventos discretos; manter uma
+  tecla pressionada, arrastar/gestos, clipboard e áudio não estão implementados.
+  A taxa de captura é baixa e cada frame inicia um processo ADB, portanto não é
+  um caminho de streaming para jogos.
 - `stop` valida a configuração antes de parar `drunk-redroid`. O volume de dados e
   a imagem permanecem, assim como o objeto Docker parado. Para evitar
   reutilização silenciosa, um `start` posterior encontra esse objeto e exige
@@ -77,8 +87,9 @@ com acesso a esse endpoint ainda podem controlar o Android.
 
 Executado após as verificações: `drunk redroid stop`, remoção do container
 `drunk-redroid`, do volume `drunk-redroid-data`, da imagem fixada, desconexão do
-ADB em `127.0.0.1:5555` e encerramento do servidor ADB. `drunk redroid status`
-confirmou `absent` depois da limpeza.
+ADB em `127.0.0.1:5555`. `drunk redroid status` confirmou `absent` depois da
+limpeza. O servidor ADB foi mantido porque também listava um endpoint adicional
+`emulator-5554`; não o encerramos para evitar interromper outro dispositivo.
 
 A montagem BinderFS em `/dev/binderfs` e o módulo `binder_linux` permanecem no
 host. A tentativa de limpeza não interativa com `sudo -n` foi recusada porque
@@ -96,11 +107,14 @@ serviço local depender dele.
 
 ## Limites deste marco
 
-Ainda não há janela desktop nativa, integração de áudio, tradução de input ou
-controle completo das sessões. Abrir Configurações via ADB comprova apenas o
-lançamento da atividade quando confirmado pelo Android; não comprova imagem
-visível, áudio audível ou funcionamento de jogos. O spike não inclui espera de
-boot, recuperação automática, atualização ou distribuição de imagens Android.
+O viewer abriu uma janela nativa e recebeu frames ADB durante a execução, mas a
+janela não foi inspecionada visualmente de forma independente. O encaminhamento
+de toque/teclas está implementado, mas input físico não foi validado nesta rodada.
+Não há integração de áudio ou controle completo das sessões. O viewer usa
+capturas lentas, não um stream; isso comprova somente o caminho de janela e
+decodificação de imagem. Não comprova aceleração gráfica, áudio audível ou
+funcionamento de jogos. O spike não inclui espera de boot, recuperação automática,
+atualização ou distribuição de imagens Android.
 
 Redroid é um projeto externo; Drunk não é cliente oficial do Roblox. Não houve
 instalação ou execução de Roblox neste spike, e não há promessa de suporte.

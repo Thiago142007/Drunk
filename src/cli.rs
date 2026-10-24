@@ -34,6 +34,8 @@ pub enum RedroidCommand {
     Stop,
     /// Open Android Settings through ADB (requires a running runtime).
     Demo,
+    /// Show a low-rate Android screen preview in a desktop window with basic input.
+    View,
 }
 
 pub fn parse() -> Cli {
