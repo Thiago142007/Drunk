@@ -2,6 +2,8 @@
 
 **Data da investigação:** 2026-10-24. **Resultado:** **NO-GO provisório para iniciar o runtime de produto da opção B.** Nenhum backend foi selecionado e nenhuma aplicação Android foi iniciada nesta investigação. Isso registra falta de demonstração, não prova impossibilidade técnica.
 
+**Bloqueadores:** composição B executável e sustentável não demonstrada; inventário de licenças da composição não concluído; samples não preparados e lançamento Android não realizado. Janela, gráficos, input, áudio e encerramento continuam sem resultado de execução. O [marco para revisão](#7-primeiro-marco-para-revisão) encerra esta etapa nesse gate.
+
 A [especificação aprovada](superpowers/specs/2026-10-24-drunk-design.md), seções 5–7, exige código próprio Rust e uma composição Android/Linux demonstrada antes do produto. A decisão está na [ADR 0001](adr/0001-android-runtime-backend.md). A investigação foi limitada a documentação pública e inspeção local de leitura: sem instalar pacotes, baixar APKs, iniciar software Android ou alterar serviços/configuração do sistema.
 
 ## 1. Como interpretar as evidências
@@ -63,9 +65,26 @@ done
 | Runtime/imagem/API de um candidato Drunk | **Não selecionados/não medidos** |
 | Backend gráfico, input, áudio, lançamento, saída, logs Android | **Não executados/não medidos** |
 
-**Limites:** a busca não cobriu todos os diretórios do disco nem dispositivos remotos. A ausência no PATH e nos caminhos usuais não prova ausência global. A existência de `/dev/kvm` não prova acesso utilizável; pacotes Mesa instalados não provam suporte Vulkan/GLES desta GPU. Não foi executado `adb devices`: o ADB pode iniciar um servidor automaticamente ([documentação ADB](https://developer.android.com/tools/adb)). Não há log de execução Android nem captura de janela porque nenhuma execução foi autorizada nesta etapa.
+**Limites:** a busca não cobriu todos os diretórios do disco nem dispositivos remotos. A ausência no PATH e nos caminhos usuais não prova ausência global. A existência de `/dev/kvm` não prova acesso utilizável; pacotes Mesa instalados não provam suporte Vulkan/GLES desta GPU. Não foi executado `adb devices`: o ADB pode iniciar um servidor automaticamente ([documentação ADB](https://developer.android.com/tools/adb)). Nenhum lançamento de aplicativo Android foi realizado: não foram selecionados/preparados uma composição B e um runtime para os samples, e não há resultado de execução, log Android ou captura de janela.
 
 **Conclusão local:** não foi identificado um candidato B pronto para demonstrar o lançamento com as ferramentas verificadas. ADB sozinho não é runtime. Mesmo uma execução bem-sucedida do Sober não serviria como prova do adaptador próprio.
+
+### 3.1 Diagnóstico de leitura do primeiro marco
+
+Na mesma máquina Linux descrita acima, a tarefa 3 executou `target/debug/drunk doctor` e `target/debug/drunk doctor --json`, ambos com saída bem-sucedida. O resultado foi registrado em 2026-10-24 a partir da implementação `dd4b143`. Esta seção transcreve os fatos do relatório dessa tarefa; não registra uma nova execução do protocolo Android.
+
+| Campo do doctor | Indício observado nesta máquina |
+| --- | --- |
+| `os` | Linux |
+| `architecture` | `x86_64` |
+| `kernel` | Versão numérica `7.0`; comparação informativa com o requisito público do Sober de kernel >= 5.11 |
+| `cpu_features` | SSE4.1 e SSE4.2 presentes em todos os conjuntos de flags de CPU reportados |
+| `graphics_devices` | Dois nós de dispositivo DRI observados por metadados |
+| `graphics_loader` | Arquivos `libvulkan.so.1`, `libEGL.so.1` e `libGL.so.1` observados em caminhos usuais |
+
+Os seis campos retornaram `supported` nos diagnósticos dessa máquina. Esse rótulo descreve somente o indício de cada sonda, **não aprovação do gate nem compatibilidade Android/Roblox**. O doctor consulta arquivos e metadados: não executa loaders, abre dispositivos ou inicia runtime. Presença de arquivos não comprova carregamento, versão de API, aceleração, permissões ou funcionamento do driver. Nenhum caso `unknown` foi observado nessas execuções; a ausência de sondas não foi simulada.
+
+**Premissas ainda não verificadas:** RAM disponível e compositor/versão não foram registrados; a sessão Wayland não identifica o compositor. Acesso utilizável a KVM/DRI, disponibilidade efetiva de Binder, requisitos do futuro backend, GLES/Vulkan e integração de input/áudio permanecem sem validação. Nenhuma dessas observações estabelece paridade com Sober ou viabilidade da composição B. O host é apenas o ambiente inspecionado para o protocolo futuro; **não houve host de execução Android demonstrada**. Não são publicados identificadores pessoais, credenciais ou logs brutos.
 
 ## 4. Modelos candidatos
 
@@ -172,3 +191,13 @@ Usar o aplicativo oficial **sem modificações**, em uma execução separada com
 | Decisão | **NO-GO provisório**; pausar implementação do runtime/produto |
 
 Para reabrir B: apresentar lista de componentes/versionamento e interfaces públicas, distribuição compatível com suas licenças, responsáveis pela manutenção e evidências completas do protocolo em uma máquina Linux x86-64. Se o caminho demonstrado for somente Waydroid ou outro Android completo pronto, solicitar uma nova decisão do usuário sobre a opção A antes de implementar o produto. Não há justificativa para começar runtime, ponte gráfica ou instalador enquanto esse gate permanecer aberto.
+
+## 7. Primeiro marco para revisão
+
+**Decisão técnica revisável em 2026-10-24: NO-GO provisório; backend selecionado: nenhum.** A delimitação das fontes públicas do Sober, a comparação de alternativas, o protocolo futuro e o diagnóstico Linux de leitura constituem a evidência deste marco. Não foi demonstrada impossibilidade de B, paridade com Sober ou compatibilidade Roblox.
+
+O gate falhou antes do lançamento: falta uma composição B delimitada, com interfaces, versões, manutenção e licenças resolvidas; os samples e seu runtime não foram preparados. Portanto não há resultado de janela, lançamento, gráficos, input, áudio, relançamento ou parada Android a aprovar. Os indícios do doctor não preenchem esses campos.
+
+**Ponto de parada:** encerrar este subprojeto no gate. Não iniciar runtime Roblox, tratamento/instalação de seus pacotes, pontes gráficas/input/áudio, integração desktop, Flatpak, instalador completo ou ciclo de vida das sessões de jogo. Um plano posterior deverá cobrir esses itens somente quando evidências suficientes sustentarem a opção B; este marco não fornece esse plano nem seleciona bibliotecas para implementá-lo.
+
+**Decisão de desenho que exigiria o usuário:** se a única solução demonstrada passar a ser Waydroid como está ou outro ambiente Android completo em lugar do adaptador B aprovado, apresentar a mudança de arquitetura e obter uma nova decisão antes da adoção. Neste marco nenhuma mudança foi proposta como aprovada. Manter B em pesquisa depende primeiro das evidências de reabertura da seção 6; revisar este marco não transforma os indícios de host em aprovação técnica.

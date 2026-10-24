@@ -20,6 +20,14 @@ O [README público do Sober](https://github.com/vinegarhq/sober) identifica um i
 
 A inspeção de leitura encontrou ADB e Sober instalado, mas não encontrou Waydroid/emuladores no PATH e nos caminhos adicionais registrados na avaliação. Nenhum app Android foi iniciado; não houve instalação, download de APK, alteração de serviço ou configuração. Portanto, o critério obrigatório de lançamento manual não foi satisfeito. A instalação do Sober não preenche esse critério para um runtime Drunk próprio.
 
+## Primeiro marco publicado para revisão
+
+Em 2026-10-24, o marco conserva a decisão e os bloqueadores acima. A [seção de diagnóstico local](../runtime-evaluation.md#31-diagnóstico-de-leitura-do-primeiro-marco) registra os resultados de leitura da tarefa 3 (`dd4b143`): Linux x86-64, kernel 7.0, SSE4.1/SSE4.2 presentes, dois nós DRI e arquivos de loaders Vulkan/EGL/GL presentes. São apenas indícios de capacidade da máquina; não demonstram APIs gráficas, permissões, funcionamento de drivers ou compatibilidade Android/Roblox. RAM disponível, compositor/versão e requisitos da composição futura continuam sem verificação.
+
+O host foi inspecionado para o protocolo futuro; nenhum lançamento Android foi realizado. A composição B e um runtime para os samples não foram selecionados/preparados, os samples não foram preparados e não existe resultado de execução. O gate falhou nessa preparação, antes de qualquer medição de janela, input, áudio, gráficos ou parada.
+
+O [resumo do marco](../runtime-evaluation.md#7-primeiro-marco-para-revisão) está pronto para revisão do usuário. A etapa termina aqui: não iniciar runtime Roblox nem elaborar o plano de produto até a viabilidade sustentar B. Esse plano posterior deverá cobrir origem e instalação permitida dos pacotes, renderização/input/áudio, integração desktop, Flatpak, instalador completo e ciclo de vida de sessões de jogo. Adoção de Waydroid como está ou mudança para outro Android completo exige nova decisão de arquitetura do usuário; nenhuma foi tomada neste marco.
+
 ## Consequências e riscos não resolvidos
 
 - Pausar runtime de produto, pontes, instalador e qualquer alegação de compatibilidade. A investigação documental desta tarefa está concluída; o gate de execução continua reprovado.
