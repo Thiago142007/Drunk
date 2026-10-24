@@ -89,11 +89,13 @@ target/debug/drunk redroid stop
   e substitui frames antigos para não acumular atraso se a janela não acompanhar
   o decoder. Esta é uma experiência de visualização; o comando não implementa
   entrada de jogo nem áudio.
-- `stop` valida a configuração antes de parar `drunk-redroid`. O volume de dados e
-  a imagem permanecem, assim como o objeto Docker parado. Para evitar
-  reutilização silenciosa, um `start` posterior encontra esse objeto e exige
-  inspeção manual. A CLI não descarrega Binder nem desmonta a montagem temporária
-  do host.
+- `stop` valida a configuração, para `drunk-redroid` e consulta o código de saída
+  do container. Se Docker precisou enviar SIGKILL após o timeout, a CLI informa
+  isso explicitamente; no redroid 12 medido aqui, `Exited (137)` ocorreu mesmo
+  com timeout de 60 segundos. O volume de dados e a imagem permanecem, assim como
+  o objeto Docker parado. Para evitar reutilização silenciosa, um `start` posterior
+  encontra esse objeto e exige inspeção manual. A CLI não descarrega Binder nem
+  desmonta uma montagem temporária do host.
 
 O modo privilegiado reduz o isolamento do container. O usuário autorizou esse uso
 temporário para o laboratório; a opção deve ser fornecida em cada chamada de
@@ -140,7 +142,10 @@ a janela 720×1280 e permaneceu até o limite configurado. Uma amostra de proces
 aos 28 s mostrou o Drunk em aproximadamente 92% de CPU e 1,3% de memória, com
 `screenrecord` em 0,4% de CPU. É apenas uma amostra, sem média de CPU, FPS ou
 latência; o conteúdo da janela não foi inspecionado independentemente. O estado
-Docker após `drunk redroid stop` foi `Exited (137)`, então parada graciosa não foi
+Docker após `drunk redroid stop` foi `Exited (137)`. `docker container stop --time
+60` também deixou `Exited (137)` após 62,37 s. A imagem usa `/init` como entrypoint
+e não define `StopSignal`; `adb shell reboot -p` retornou `Done`, mas o container
+permaneceu em execução. A causa exata não foi confirmada; parada graciosa não foi
 demonstrada. Container, volume, imagem e endpoint ADB temporários foram removidos.
 
 Não foi validado Roblox, áudio, aceleração gráfica ou controle de jogo nesta

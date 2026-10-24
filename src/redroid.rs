@@ -40,7 +40,17 @@ pub fn run(command: RedroidCommand) -> Result<(), String> {
                 return Ok(());
             }
             docker(&["container", "stop", NAME])?;
-            println!("{NAME}: stopped; data volume and image preserved");
+            let exit_code = docker(&[
+                "container",
+                "inspect",
+                "--format",
+                "{{.State.ExitCode}}",
+                NAME,
+            ])?
+            .trim()
+            .parse::<i32>()
+            .map_err(|error| format!("could not parse {NAME} exit code after stopping: {error}"))?;
+            println!("{}", stopped_summary(exit_code));
             Ok(())
         }
         RedroidCommand::Demo => demo(),
@@ -908,4 +918,37 @@ fn docker(args: &[&str]) -> Result<String, String> {
     let mut pinned_args = vec!["--context", "default"];
     pinned_args.extend_from_slice(args);
     execute("docker", &pinned_args)
+}
+
+fn stopped_summary(exit_code: i32) -> String {
+    if exit_code == 137 {
+        format!(
+            "{NAME}: stopped after Docker forced SIGKILL (exit 137); data volume and image preserved"
+        )
+    } else {
+        format!(
+            "{NAME}: stopped (container exit code {exit_code}); data volume and image preserved"
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stopped_summary;
+
+    #[test]
+    fn stop_summary_discloses_docker_forced_kill() {
+        assert_eq!(
+            stopped_summary(137),
+            "drunk-redroid: stopped after Docker forced SIGKILL (exit 137); data volume and image preserved"
+        );
+    }
+
+    #[test]
+    fn stop_summary_reports_other_container_exit_codes() {
+        assert_eq!(
+            stopped_summary(0),
+            "drunk-redroid: stopped (container exit code 0); data volume and image preserved"
+        );
+    }
 }
