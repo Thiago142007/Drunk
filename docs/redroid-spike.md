@@ -47,6 +47,7 @@ target/debug/drunk redroid start --allow-privileged
 target/debug/drunk redroid demo
 target/debug/drunk redroid view
 target/debug/drunk redroid stream-probe --seconds 5
+target/debug/drunk redroid stream --seconds 30
 target/debug/drunk redroid stop
 ```
 
@@ -79,6 +80,15 @@ target/debug/drunk redroid stop
   falha. Informa throughput aproximado e tempo até o primeiro byte; não
   decodifica nem salva vídeo. Foi adicionado para confirmar a disponibilidade
   do transporte antes de integrar um decoder.
+- `stream` abre uma prévia contínua via `adb shell -T screenrecord`, decodifica
+  cada NAL no crate Rust `hibernia` 0.1.0 e converte os planos YUV 4:2:0 para a
+  janela `minifb`. O limite selecionável é 1–180 segundos (30 por padrão), pois
+  `screenrecord` tem duração máxima finita. Escape fecha a janela e o processo
+  local ADB é encerrado e recolhido. O decoder fica em uma thread separada; um
+  panic do Hibernia vira erro compreensível. A fila de frames tem capacidade um
+  e substitui frames antigos para não acumular atraso se a janela não acompanhar
+  o decoder. Esta é uma experiência de visualização; o comando não implementa
+  entrada de jogo nem áudio.
 - `stop` valida a configuração antes de parar `drunk-redroid`. O volume de dados e
   a imagem permanecem, assim como o objeto Docker parado. Para evitar
   reutilização silenciosa, um `start` posterior encontra esse objeto e exige
@@ -90,44 +100,44 @@ temporário para o laboratório; a opção deve ser fornecida em cada chamada de
 `start`. A publicação ADB fica restrita ao loopback do host, mas processos locais
 com acesso a esse endpoint ainda podem controlar o Android.
 
-## Próximo incremento: stream H.264 em Rust
+## Stream H.264 em Rust: estado experimental
 
-O caminho de screenshots valida a janela, mas não serve para jogos. O próximo
-experimento deve substituir a captura por processo/frame por uma leitura contínua
-de `adb shell -T screenrecord --output-format=h264 -`. A implementação AOSP do
+O caminho de screenshots valida a janela, mas não serve para jogos. A prévia
+H.264 experimental usa uma leitura contínua de
+`adb shell -T screenrecord --output-format=h264 -`. A implementação AOSP do
 `screenrecord` confirma que o formato H.264 bruto aceita `-` como saída em
 stdout ([código AOSP](https://android.googlesource.com/platform/frameworks/av/+/297eaacfa6/cmds/screenrecord/screenrecord.cpp)).
-Isso ainda precisa ser confirmado contra a imagem redroid Android 12 usada aqui.
+O probe confirmou a entrega desse formato pela imagem redroid Android 12 nesta
+execução; a sessão de exibição com decoder continua sem validação de runtime.
 
-Para preservar a implementação Rust, o processo Drunk deve ler o stream como
-bytes, separar NAL units, decodificá-las em Rust e converter os frames YUV 4:2:0
-para o buffer da janela `minifb`. O decoder Hibernia anuncia esse subconjunto
-progressivo 8-bit 4:2:0 e licença MIT ([repositório Hibernia](https://github.com/Djuffin/hibernia)).
-Há, porém, uma diferença de publicação: o crates.io oferece `hibernia` 0.1.0,
-enquanto a documentação atual do repositório descreve uma API 0.2.0. Antes de
-adotá-lo, comparar a API publicada com a atual e fixar uma versão ou commit
-revisável; não depender implicitamente de um crate não publicado. A versão
-publicada identifica-se como WIP, declara suporte Baseline e contém caminhos
-`todo!()`; portanto o decoder deve ficar isolado num worker com erros/panics
-convertidos em encerramento controlado do stream. O parser Annex-B entrega cada
-NAL numa `Vec` apenas ao encontrar o próximo start code. O frame é planar YUV
-4:2:0 e exige conversão que respeite stride/padding antes de chegar ao `minifb`.
-Esses limites tornam obrigatório um ensaio com o encoder real do redroid antes
-de integrar essa dependência ao comando de preview.
+O comando `stream` integra o crate publicado `hibernia = 0.1.0` (MIT) em uma
+thread de decoder. Essa publicação está em desenvolvimento inicial (WIP),
+declara suporte somente ao perfil Baseline e contém caminhos ainda não
+implementados (`todo!()`), que podem provocar panic. A thread captura esses
+panics e os converte em encerramento com diagnóstico, mas isso não garante que
+todo bitstream seja suportado nem que o decoder seja estável. O código está
+fixado pela versão do crates.io e `Cargo.lock`; não depende de uma API git não
+publicada.
 
-O probe inicial mede bytes, throughput e tempo até o primeiro byte; ainda deve
-ser executado no runtime para confirmar a entrega de H.264. O experimento com
-decoder deve medir FPS entregue à janela, latência aproximada de captura até
-apresentação, uso de CPU e estabilidade durante vários minutos. Deve
-encerrar o processo `screenrecord` ao fechar a janela ou ocorrer erro. O limite
-de clipes do `screenrecord` pode exigir reinicialização supervisionada do stream.
-Não integrar scrcpy nem decoder C/C++ nesse marco. Se a combinação não sustentar
-uma taxa útil, registrar a medição e parar para uma decisão de arquitetura,
-mantendo `view` como prévia de diagnóstico.
+O decoder recebe unidades Annex-B separadas, converte os planos YUV 4:2:0 usando
+strides e origens do Hibernia e produz RGB para `minifb`. Uma fila limitada a um
+frame descarta o antigo quando o decoder avança mais rápido que a janela. O
+processo local ADB é encerrado e recolhido ao fechar a janela ou ao encontrar um
+erro; `screenrecord` também para ao alcançar o tempo limite selecionado (30 s por
+padrão, até 180 s). Não há reconexão automática para streams longos.
 
-Este plano não demonstra áudio, aceleração gráfica, controle contínuo de teclas
-ou compatibilidade Roblox. O Android screenrecord é apenas a fonte de imagem;
-ele não substitui os gates de runtime, licenças e plataforma descritos na ADR.
+O probe H.264 executado contra o redroid Android 12 recebeu 1.031.795 bytes em
+5,27 s (0,19 MiB/s), primeiro byte em 386 ms, e encontrou NALs Annex-B SPS, PPS e
+de imagem. Isso confirma somente que o transporte daquela execução funcionou.
+O build confirma a integração compilável, mas o decoder e a janela contínua ainda
+precisam ser exercitados juntos contra uma sessão Android e observados em
+execução. FPS, fluidez, latência ponta a ponta, uso de CPU e estabilidade por
+vários minutos não foram medidos. O uso de decoder inteiramente Rust não altera
+os gates de runtime, licenças e plataforma.
+
+Não foi validado Roblox, áudio, aceleração gráfica ou controle de jogo nesta
+experiência. Nenhuma compatibilidade é prometida. `view` permanece como caminho
+separado de screenshots lentos para diagnóstico.
 
 ## Limpeza do laboratório
 

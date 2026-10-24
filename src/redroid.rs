@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::Read,
+    io::{BufReader, Read},
     process::{Command, Stdio},
     sync::{
         Arc, Mutex,
@@ -11,6 +11,7 @@ use std::{
 };
 
 use crate::cli::RedroidCommand;
+use hibernia::h264::{decoder::Decoder, nal_parser::NalParser};
 
 const NAME: &str = "drunk-redroid";
 const IMAGE: &str =
@@ -45,6 +46,7 @@ pub fn run(command: RedroidCommand) -> Result<(), String> {
         RedroidCommand::Demo => demo(),
         RedroidCommand::View => view(),
         RedroidCommand::StreamProbe { seconds } => stream_probe(seconds),
+        RedroidCommand::Stream { seconds } => stream_view(seconds),
     }
 }
 
@@ -425,6 +427,317 @@ fn stream_probe(seconds: u8) -> Result<(), String> {
     }
     println!("This probe checks transport only; it does not decode or display video.");
     Ok(())
+}
+
+fn stream_view(seconds: u16) -> Result<(), String> {
+    if state()?.as_deref() != Some("running") {
+        return Err(format!(
+            "{NAME} must be running before opening its H.264 stream"
+        ));
+    }
+    validate_managed_container()?;
+    connect_adb()?;
+
+    let mut child = Command::new("adb")
+        .args([
+            "-s",
+            ADB,
+            "shell",
+            "-T",
+            "screenrecord",
+            "--output-format=h264",
+            &format!("--time-limit={seconds}"),
+            "-",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("could not start Android H.264 stream: {error}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "screenrecord stdout pipe was not created".to_owned())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "screenrecord stderr pipe was not created".to_owned())?;
+
+    let stderr_thread = thread::spawn(move || read_limited(stderr, 16 * 1024));
+    let (frame_tx, frame_rx) = crossbeam_channel::bounded(1);
+    let stale_frame_rx = frame_rx.clone();
+    let (status_tx, status_rx) = std::sync::mpsc::channel();
+    let decoder_thread = thread::spawn(move || {
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            decode_android_stream(stdout, seconds, &frame_tx, &stale_frame_rx)
+        }));
+        let message = match outcome {
+            Ok(Ok(())) => StreamWorkerMessage::Finished,
+            Ok(Err(error)) => StreamWorkerMessage::Error(error),
+            Err(payload) => StreamWorkerMessage::Error(format!(
+                "Hibernia decoder panicked: {}",
+                panic_message(payload)
+            )),
+        };
+        let _ = status_tx.send(message);
+    });
+
+    let first_frame = match frame_rx.recv_timeout(Duration::from_secs(20)) {
+        Ok(frame) => frame,
+        Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+            cleanup_stream_child(&mut child);
+            let _ = decoder_thread.join();
+            let diagnostic = join_stderr(stderr_thread);
+            return Err(format!(
+                "no decoded H.264 frame arrived within 20 seconds{}",
+                if diagnostic.is_empty() {
+                    String::new()
+                } else {
+                    format!("; screenrecord: {diagnostic}")
+                }
+            ));
+        }
+        Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+            cleanup_stream_child(&mut child);
+            let _ = decoder_thread.join();
+            let diagnostic = join_stderr(stderr_thread);
+            let detail = match status_rx.try_recv() {
+                Ok(StreamWorkerMessage::Error(error)) => error,
+                _ if !diagnostic.is_empty() => diagnostic,
+                _ => "the decoder stopped before producing a frame".to_owned(),
+            };
+            return Err(detail);
+        }
+    };
+
+    let source_width = first_frame.width;
+    let source_height = first_frame.height;
+    let scale = (720.0 / source_width as f32)
+        .min(1280.0 / source_height as f32)
+        .min(1.0);
+    let width = ((source_width as f32 * scale).round() as usize).max(1);
+    let height = ((source_height as f32 * scale).round() as usize).max(1);
+    let mut buffer = resize_rgb_nearest(&first_frame, width, height);
+    let mut window = match minifb::Window::new(
+        "Drunk [EXPERIMENTAL • H.264 / Rust] — Android preview (Esc closes)",
+        width,
+        height,
+        minifb::WindowOptions::default(),
+    ) {
+        Ok(window) => window,
+        Err(error) => {
+            cleanup_stream_child(&mut child);
+            let _ = decoder_thread.join();
+            let _ = join_stderr(stderr_thread);
+            return Err(format!("could not create H.264 preview window: {error}"));
+        }
+    };
+    window.set_target_fps(60);
+    println!(
+        "Rust H.264 preview opened ({source_width}×{source_height}); screenrecord stops after {seconds}s. Press Esc to close."
+    );
+
+    let display_result = (|| -> Result<bool, String> {
+        while window.is_open() && !window.is_key_down(minifb::Key::Escape) {
+            if let Ok(frame) = frame_rx.try_recv() {
+                if frame.width != source_width || frame.height != source_height {
+                    return Err("Android video dimensions changed during the stream".into());
+                }
+                buffer = resize_rgb_nearest(&frame, width, height);
+            }
+            window
+                .update_with_buffer(&buffer, width, height)
+                .map_err(|error| format!("could not update H.264 preview window: {error}"))?;
+            match status_rx.try_recv() {
+                Ok(StreamWorkerMessage::Error(error)) => return Err(error),
+                Ok(StreamWorkerMessage::Finished) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+            if let Some(status) = child
+                .try_wait()
+                .map_err(|error| format!("could not check screenrecord status: {error}"))?
+            {
+                if !status.success() {
+                    return Err(format!("ADB screenrecord exited with {status}"));
+                }
+                break;
+            }
+        }
+        Ok(!window.is_open() || window.is_key_down(minifb::Key::Escape))
+    })();
+
+    cleanup_stream_child(&mut child);
+    let decoder_result = decoder_thread
+        .join()
+        .map_err(|_| "H.264 decoder worker thread did not exit cleanly".to_owned());
+    let worker_message = status_rx.try_recv();
+    let diagnostic = join_stderr(stderr_thread);
+    let user_closed = display_result?;
+    decoder_result?;
+    match worker_message {
+        Ok(StreamWorkerMessage::Error(_)) if user_closed => {}
+        Ok(StreamWorkerMessage::Error(error)) if !diagnostic.is_empty() => {
+            return Err(format!("{error}; screenrecord: {diagnostic}"));
+        }
+        Ok(StreamWorkerMessage::Error(error)) => return Err(error),
+        Ok(StreamWorkerMessage::Finished) | Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            return Err("H.264 decoder worker stopped without a status message".into());
+        }
+    }
+    if !diagnostic.is_empty() {
+        println!("screenrecord: {diagnostic}");
+    }
+    Ok(())
+}
+
+enum StreamWorkerMessage {
+    Finished,
+    Error(String),
+}
+
+struct RgbFrame {
+    width: usize,
+    height: usize,
+    pixels: Vec<u32>,
+}
+
+fn decode_android_stream(
+    stdout: std::process::ChildStdout,
+    seconds: u16,
+    frames: &crossbeam_channel::Sender<RgbFrame>,
+    stale_frame_rx: &crossbeam_channel::Receiver<RgbFrame>,
+) -> Result<(), String> {
+    let reader = BufReader::with_capacity(128 * 1024, stdout);
+    let mut parser = NalParser::new(reader);
+    let mut decoder = Decoder::new();
+    let mut decoded_frames = 0usize;
+    while let Some(nal) = parser.next() {
+        let nal = nal.map_err(|error| format!("could not read H.264 NAL unit: {error}"))?;
+        decoder
+            .decode(&nal)
+            .map_err(|error| format!("Hibernia could not decode H.264 NAL unit: {error:?}"))?;
+        while let Some(frame) = decoder.retrieve_frame() {
+            decoded_frames += 1;
+            let frame = rgb_from_yuv420(&frame)?;
+            publish_latest_frame(frames, stale_frame_rx, frame);
+        }
+    }
+    decoder
+        .flush()
+        .map_err(|error| format!("Hibernia could not flush the last frame: {error:?}"))?;
+    while let Some(frame) = decoder.retrieve_frame() {
+        decoded_frames += 1;
+        let frame = rgb_from_yuv420(&frame)?;
+        publish_latest_frame(frames, stale_frame_rx, frame);
+    }
+    if decoded_frames == 0 {
+        return Err(format!(
+            "screenrecord ended without a decoded picture within its {seconds}s time limit"
+        ));
+    }
+    Ok(())
+}
+
+fn publish_latest_frame(
+    sender: &crossbeam_channel::Sender<RgbFrame>,
+    stale_frame_rx: &crossbeam_channel::Receiver<RgbFrame>,
+    frame: RgbFrame,
+) {
+    match sender.try_send(frame) {
+        Ok(()) => {}
+        Err(crossbeam_channel::TrySendError::Full(frame)) => {
+            let _ = stale_frame_rx.try_recv();
+            let _ = sender.try_send(frame);
+        }
+        Err(crossbeam_channel::TrySendError::Disconnected(_)) => {}
+    }
+}
+
+fn rgb_from_yuv420(frame: &hibernia::h264::decoder::VideoFrame) -> Result<RgbFrame, String> {
+    let y = &frame.planes[0];
+    let u = &frame.planes[1];
+    let v = &frame.planes[2];
+    let width = y.cfg.width;
+    let height = y.cfg.height;
+    if width == 0 || height == 0 || u.cfg.width == 0 || v.cfg.width == 0 {
+        return Err("Hibernia produced an empty YUV frame".into());
+    }
+    let capacity = width
+        .checked_mul(height)
+        .ok_or_else(|| "decoded frame dimensions exceed supported buffer size".to_owned())?;
+    let mut pixels = Vec::with_capacity(capacity);
+    for out_y in 0..height {
+        let y_row = (y.cfg.yorigin + out_y) * y.cfg.stride;
+        let u_row = (u.cfg.yorigin + out_y / 2) * u.cfg.stride;
+        let v_row = (v.cfg.yorigin + out_y / 2) * v.cfg.stride;
+        for out_x in 0..width {
+            let luminance = i32::from(y.data[y_row + y.cfg.xorigin + out_x]);
+            let cb = i32::from(u.data[u_row + u.cfg.xorigin + out_x / 2]) - 128;
+            let cr = i32::from(v.data[v_row + v.cfg.xorigin + out_x / 2]) - 128;
+            let c = (luminance - 16).max(0);
+            let red = ((298 * c + 409 * cr + 128) >> 8).clamp(0, 255) as u32;
+            let green = ((298 * c - 100 * cb - 208 * cr + 128) >> 8).clamp(0, 255) as u32;
+            let blue = ((298 * c + 516 * cb + 128) >> 8).clamp(0, 255) as u32;
+            pixels.push((red << 16) | (green << 8) | blue);
+        }
+    }
+    Ok(RgbFrame {
+        width,
+        height,
+        pixels,
+    })
+}
+
+fn resize_rgb_nearest(frame: &RgbFrame, width: usize, height: usize) -> Vec<u32> {
+    let mut output = Vec::with_capacity(width * height);
+    for y in 0..height {
+        let source_y = y * frame.height / height;
+        for x in 0..width {
+            let source_x = x * frame.width / width;
+            output.push(frame.pixels[source_y * frame.width + source_x]);
+        }
+    }
+    output
+}
+
+fn cleanup_stream_child(child: &mut std::process::Child) {
+    if child.try_wait().ok().flatten().is_none() {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+}
+
+fn read_limited(mut reader: impl Read, limit: usize) -> Vec<u8> {
+    let mut output = Vec::new();
+    let mut buffer = [0u8; 4096];
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(count) => {
+                let remaining = limit.saturating_sub(output.len());
+                output.extend_from_slice(&buffer[..count.min(remaining)]);
+            }
+        }
+    }
+    output
+}
+
+fn join_stderr(thread: thread::JoinHandle<Vec<u8>>) -> String {
+    thread
+        .join()
+        .map(|output| String::from_utf8_lossy(&output).trim().to_owned())
+        .unwrap_or_else(|_| "could not collect screenrecord diagnostics".to_owned())
+}
+
+fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_owned()
+    } else {
+        "unknown panic payload".to_owned()
+    }
 }
 
 fn connect_adb() -> Result<(), String> {

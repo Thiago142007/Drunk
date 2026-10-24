@@ -42,6 +42,12 @@ pub enum RedroidCommand {
         #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u8).range(1..=30))]
         seconds: u8,
     },
+    /// Open an experimental continuous Rust-decoded Android H.264 preview.
+    Stream {
+        /// Maximum stream duration in seconds (Android screenrecord is time-limited).
+        #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u16).range(1..=180))]
+        seconds: u16,
+    },
 }
 
 pub fn parse() -> Cli {
