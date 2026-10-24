@@ -52,23 +52,23 @@
 - Consumes: approved design in `docs/superpowers/specs/2026-10-24-drunk-design.md`; official Sober and Android runtime documentation.
 - Produces: a documented choice of backend or an explicit no-go, with a reproducible manual validation protocol.
 
-- [ ] **Step 1: Record the boundary of public Sober evidence**
+- [x] **Step 1: Record the boundary of public Sober evidence**
 
   Document that Sober's public GitHub repository is an issue tracker and that its FAQ/site describe an Android-client runtime for Linux. Separate confirmed statements from assumptions; do not claim knowledge of private internals.
 
-- [ ] **Step 2: Compare candidate runtime models**
+- [x] **Step 2: Compare candidate runtime models**
 
   Compare only primary-source-documented options. At minimum include a custom Linux adapter consuming Android components, Waydroid as a reference/integration candidate, and a full Android VM/container approach. Waydroid's official docs describe a full Android system running in a Linux container using namespaces; assess that model as a reference or possible external backend and state clearly whether selecting it would amount to changing the approved option B. For each, record ownership boundary, x86-64 support, graphics/window path, input/audio path, privilege/kernel requirements, release health, licensing/distribution constraints, and whether it fits option B. Reference: [Waydroid documentation](https://docs.waydro.id/).
 
-- [ ] **Step 3: Define a manual compatibility protocol**
+- [x] **Step 3: Define a manual compatibility protocol**
 
   Specify a non-Roblox Android test app that can be lawfully used; record host distro/kernel, CPU flags, GPU/driver, runtime/image version, API level, graphics backend, input, audio, launch/exit behavior, and logs. Define a separate later Roblox validation that uses the unmodified official app and never attempts to evade security checks.
 
-- [ ] **Step 4: Decide go/no-go and write the ADR**
+- [x] **Step 4: Decide go/no-go and write the ADR**
 
   Choose an integration only if primary documentation, license terms, and a manual app launch demonstrate a maintainable fit. If the only viable path is simply launching Waydroid as-is, explain that it conflicts with the approved option B and request a new design decision instead of silently switching architecture. If no path is demonstrated, record a no-go and do not start the product runtime.
 
-- [ ] **Step 5: Review the evidence in both documents**
+- [x] **Step 5: Review the evidence in both documents**
 
   Confirm every claim has a source or is explicitly labeled inference, and that unresolved risks and the decision are visible at the top of the ADR.
 
@@ -84,19 +84,19 @@
 **Interfaces:**
 - Produces: `enum Command { Doctor { json: bool } }`; `clap` provides `--version` from package metadata. Until Task 3 supplies the module, `main()` accepts `Doctor`, prints `doctor implementation pending` to stderr, and exits with code 2.
 
-- [ ] **Step 1: Create the Cargo package**
+- [x] **Step 1: Create the Cargo package**
 
   Use crate/package name `drunk`, Rust edition 2024, and a binary target named `drunk`. Include only the planned direct dependencies: `clap` derive, `serde` derive, `serde_json`, and `thiserror`. Add no GTK/UI/runtime dependency in this step.
 
-- [ ] **Step 2: Define `Command` and parse arguments in `src/cli.rs`**
+- [x] **Step 2: Define `Command` and parse arguments in `src/cli.rs`**
 
   Provide `drunk doctor [--json]`; configure the root Clap command with `version = env!("CARGO_PKG_VERSION")` so `drunk --version` is generated automatically. Unknown commands/options should be reported by Clap with a non-zero exit code.
 
-- [ ] **Step 3: Implement dispatch in `src/main.rs`**
+- [x] **Step 3: Implement dispatch in `src/main.rs`**
 
   Route `Doctor` to a temporary `doctor implementation pending` message on stderr and exit code 2; Task 3 replaces this branch with `doctor::run(json)`. Keep stdout reserved for reports and rely on Clap for `--version`.
 
-- [ ] **Step 4: Confirm the CLI surface manually**
+- [x] **Step 4: Confirm the CLI surface manually**
 
   Run `cargo run -- --help`, `cargo run -- --version`, and `cargo run -- doctor --help`; confirm command names and unsupported invocation behavior match the interface above. Confirm `doctor` reports that its implementation is pending until Task 3.
 
@@ -115,23 +115,23 @@
 - `pub struct DoctorReport { pub os: Capability, pub architecture: Capability, pub kernel: Capability, pub cpu_features: Capability, pub graphics_devices: Capability, pub graphics_loader: Capability }`
 - `pub enum Capability { Supported { detail: String }, Unsupported { detail: String }, Unknown { detail: String } }`
 
-- [ ] **Step 1: Define the report types and stable JSON shape**
+- [x] **Step 1: Define the report types and stable JSON shape**
 
   Implement `Capability` and `DoctorReport`; serialize using snake_case fields. Do not include username, home-directory paths, environment variables, cookies, account identity, or session data.
 
-- [ ] **Step 2: Collect architecture and kernel details**
+- [x] **Step 2: Collect architecture and kernel details**
 
   Read `std::env::consts::ARCH` and `/proc/sys/kernel/osrelease`. Report Linux x86-64 and kernel >= 5.11 as the reference baseline from Sober's public requirements, clearly labeled as a comparison baseline rather than a Drunk guarantee. If a file cannot be read, report `Unknown`.
 
-- [ ] **Step 3: Collect CPU and graphics capability hints**
+- [x] **Step 3: Collect CPU and graphics capability hints**
 
   Parse `/proc/cpuinfo` for `sse4_1` and `sse4_2`; inspect `/dev/dri` without changing permissions; detect graphics loader presence without invoking privileged commands. Report `Unknown` rather than inferring support from missing files. Do not emulate instructions or load a different client binary.
 
-- [ ] **Step 4: Render human and JSON reports**
+- [x] **Step 4: Render human and JSON reports**
 
   Human output must show one row per capability and distinguish supported, unsupported, and unknown. `--json` writes one JSON object to stdout. Probe errors become report entries when possible; they do not panic.
 
-- [ ] **Step 5: Review command behavior manually**
+- [x] **Step 5: Review command behavior manually**
 
   Run `drunk doctor` and `drunk doctor --json`; confirm the human report is readable, JSON parses, missing probes are `unknown`, and the program makes no system changes.
 
@@ -143,15 +143,15 @@
 - Modify: `docs/runtime-evaluation.md`
 - Modify: `docs/adr/0001-android-runtime-backend.md`
 
-- [ ] **Step 1: Capture environment-specific results**
+- [x] **Step 1: Capture environment-specific results**
 
   Record the host used for the manual Android-app protocol and any unverified hardware/platform assumptions. Do not store personal identifiers or credentials.
 
-- [ ] **Step 2: Confirm the gate outcome**
+- [x] **Step 2: Confirm the gate outcome**
 
-  If the runtime and sample app launch are demonstrated, document the exact backend and prepare a follow-on plan for Roblox package installation, rendering/input/audio integration, and Flatpak. If not, record what failed and stop before implementing the Roblox runtime.
+  redroid Android 12/13 e o sample Native Audio iniciaram, mas isso demonstra um Android completo externo, não o adaptador Rust/AOSP da opção B. Registrar o caminho e o resultado, manter NO-GO de produto e não preparar instalação Roblox, pontes finais ou Flatpak até uma nova decisão de arquitetura.
 
-- [ ] **Step 3: Present the milestone for user review**
+- [x] **Step 3: Present the milestone for user review**
 
   Summarize the evidence, limitations, selected backend or no-go, and any design decision that would need the user's input. Continue into the follow-on product plan only after the feasibility result supports option B.
 

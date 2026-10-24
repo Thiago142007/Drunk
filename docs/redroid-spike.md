@@ -296,11 +296,13 @@ requer Android 13/API 33 ou superior; a imagem de teste foi fixada no digest
 `redroid/redroid@sha256:36d6d21bcf7e92d78eabaa6f1748e5cf0e9fb15176c0091794168be012c5c22e`.
 
 Com Native Audio HELLO tocando no Android 13 e scrcpy 3.3.4 executando
-`--audio-source=playback`, uma captura de 3 s do monitor HDMI a 48 kHz registrou
-98.304 amostras PCM intercaladas (2 canais), pico `640434624`, RMS `0,04817685`
-e 48.026 amostras não nulas. Isso prova que o stream Android 13 produziu sinal na saída
-HDMI durante o teste. O usuário confirmou ter ouvido o HELLO nos testes direto e
-integrado. O resultado não prova compatibilidade com todos os apps, nem
-qualidade/latência adequadas para jogos. O comando padrão do Drunk agora usa
-Android 13 e `playback`; a integração final pelo próprio comando ainda precisa
-ser repetida após a troca do digest.
+`--audio-source=playback`, uma captura direta de 3 s do monitor HDMI a 48 kHz
+registrou 98.304 amostras PCM intercaladas (2 canais), pico `640434624`, RMS
+`0,04817685` e 48.026 amostras não nulas. Depois da troca do digest, o controlador
+gerenciado `target/debug/drunk redroid audio` foi testado no mesmo sample: a
+captura registrou 98.304 amostras, 45.708 não nulas, pico `672161536` e RMS
+`0,04841576`. O usuário confirmou ter ouvido HELLO nos dois testes. Isso comprova
+sinal na saída HDMI e audibilidade para este sample, não compatibilidade com
+todos os apps nem qualidade/latência adequadas para jogos. O container gerenciado
+está parado (Docker exit 137); o volume `drunk-redroid-data` e a imagem Android 13
+foram preservados, e ADB foi desconectado. `binder_linux` continua carregado.
