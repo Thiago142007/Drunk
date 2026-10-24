@@ -68,7 +68,7 @@ target/debug/drunk redroid stop
   não instala aplicativos e não executa Roblox.
 - `view` cria uma janela Linux com `minifb`, captura o framebuffer Android como
   PNG por ADB a cada 250 ms (até 4 FPS) e redimensiona a imagem para caber em
-  540×900. Um clique esquerdo envia `input tap`; teclas básicas (letras, números,
+  540×680. Um clique esquerdo envia `input tap`; teclas básicas (letras, números,
   setas, Enter, espaço, Tab e Backspace) são enviadas como keyevents. Escape
   fecha a janela. O input é encaminhado como eventos discretos; manter uma
   tecla pressionada, arrastar/gestos, clipboard e áudio não estão implementados.
@@ -155,7 +155,7 @@ Native Audio criou um track no AudioFlinger com rota Android `speaker`, sem
 underruns na amostra. Não se confirmou áudio audível no host e a permissão
 `RECORD_AUDIO` ficou negada. Cada app permaneceu aberto por 60 s e foi encerrado
 e relançado duas vezes sem `FATAL EXCEPTION` nos logs consultados. A captura da
-tela não mede áudio físico, input físico nem estabilidade prolongada do viewer.
+tela não mede áudio audível no host nem estabilidade prolongada do viewer.
 
 Não foi validado Roblox, áudio audível no host, aceleração gráfica física ou
 controle de jogo nesta experiência. Nenhuma compatibilidade é prometida. `view`
@@ -186,20 +186,25 @@ serviço local depender dele.
 
 ## Limites deste marco
 
-O viewer H.264 abriu uma janela por 30 s, mas a própria janela não foi
-inspecionada visualmente de forma independente; uma amostra do processo marcou
+O viewer H.264 abriu uma janela por 30 s; uma amostra do processo marcou
 aproximadamente 92% de CPU. Hello GL2 e Native Audio foram inspecionados por
-capturas ADB; o encaminhamento de toque/teclas pela janela Drunk não foi testado
-com input físico. O track de áudio Android não comprova som audível no host. A
-renderização observada foi SwiftShader software. O spike não inclui espera de
-boot, recuperação automática, atualização ou distribuição de imagens Android.
+capturas ADB. O encaminhamento de um toque físico pelo viewer `view` foi
+confirmado no teste posterior descrito abaixo; teclado, controles de jogo,
+alternância de foco e estabilidade prolongada não foram validados. O track de
+áudio Android não comprova som audível no host. A renderização observada foi
+SwiftShader software. O spike não inclui espera de boot, recuperação
+automática, atualização ou distribuição de imagens Android.
 
-Em uma tentativa posterior de validar input físico, o Native Audio foi aberto
-na janela `drunk redroid view` (720×1280), mas nenhum clique foi confirmado pelo
-usuário antes de encerrar o ensaio. Uma amostra de `ps` após cerca de 2 min 46 s
-mostrou o viewer em 68,2% de CPU e 1,2% de memória; não é uma média. A janela
-foi encerrada e o container, volume, imagem e endpoint ADB temporários foram
-removidos. O encaminhamento de input físico continua **não demonstrado**.
+Na primeira tentativa de input, a janela de 900 px de altura não foi localizada
+no host cuja tela tem 768 px de altura. O limite do viewer foi então reduzido:
+para uma origem Android 720×1280, a janela abriu em 383×680. O usuário confirmou
+que via a janela e clicou em HELLO. Logo depois, o log Android registrou
+`AudioTrack: stop(8): called with 27400 frames delivered`, evidência de que o
+toque chegou ao Native Audio e disparou a reprodução. O AudioFlinger reportou
+zero underruns na inspeção, com rota Android `Speaker`; não se confirmou som
+audível no host. Uma amostra anterior de `ps`, aos 2 min 46 s, marcou 68,2% de
+CPU e 1,2% de memória; não é uma média. O viewer, container, volume, imagem e
+endpoint ADB temporários foram encerrados e removidos.
 
 Redroid é um projeto externo; Drunk não é cliente oficial do Roblox. Não houve
 instalação ou execução de Roblox neste spike, e não há promessa de suporte.

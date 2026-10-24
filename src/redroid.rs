@@ -203,11 +203,9 @@ fn view() -> Result<(), String> {
     let first_frame = capture_frame(serial)?;
     let source_width = first_frame.width();
     let source_height = first_frame.height();
-    let scale = (540.0 / source_width as f32)
-        .min(900.0 / source_height as f32)
-        .min(1.0);
-    let width = ((source_width as f32 * scale).round() as u32).max(1);
-    let height = ((source_height as f32 * scale).round() as u32).max(1);
+    let (width, height) = preview_dimensions(source_width as usize, source_height as usize);
+    let width = width as u32;
+    let height = height as u32;
     let mut buffer = make_window_buffer(&first_frame, width, height);
 
     let mut window = minifb::Window::new(
@@ -221,7 +219,9 @@ fn view() -> Result<(), String> {
 
     let mut previous_mouse_down = false;
     let mut last_capture = std::time::Instant::now();
-    println!("Android preview opened at {source_width}×{source_height}; input is sent over ADB.");
+    println!(
+        "Android preview opened ({source_width}×{source_height} source, {width}×{height} window); input is sent over ADB."
+    );
 
     while window.is_open() && !window.is_key_down(minifb::Key::Escape) {
         window
@@ -521,11 +521,7 @@ fn stream_view(seconds: u16) -> Result<(), String> {
 
     let source_width = first_frame.width;
     let source_height = first_frame.height;
-    let scale = (720.0 / source_width as f32)
-        .min(1280.0 / source_height as f32)
-        .min(1.0);
-    let width = ((source_width as f32 * scale).round() as usize).max(1);
-    let height = ((source_height as f32 * scale).round() as usize).max(1);
+    let (width, height) = preview_dimensions(source_width, source_height);
     let mut buffer = resize_rgb_nearest(&first_frame, width, height);
     let mut window = match minifb::Window::new(
         "Drunk [EXPERIMENTAL • H.264 / Rust] — Android preview (Esc closes)",
@@ -543,7 +539,7 @@ fn stream_view(seconds: u16) -> Result<(), String> {
     };
     window.set_target_fps(60);
     println!(
-        "Rust H.264 preview opened ({source_width}×{source_height}); screenrecord stops after {seconds}s. Press Esc to close."
+        "Rust H.264 preview opened ({source_width}×{source_height} source, {width}×{height} window); screenrecord stops after {seconds}s. Press Esc to close."
     );
 
     let mut received_worker_message = None;
@@ -667,6 +663,19 @@ fn publish_latest_frame(
         }
         Err(crossbeam_channel::TrySendError::Disconnected(_)) => {}
     }
+}
+
+fn preview_dimensions(source_width: usize, source_height: usize) -> (usize, usize) {
+    const MAX_WIDTH: f32 = 540.0;
+    const MAX_HEIGHT: f32 = 680.0;
+
+    let scale = (MAX_WIDTH / source_width as f32)
+        .min(MAX_HEIGHT / source_height as f32)
+        .min(1.0);
+    (
+        ((source_width as f32 * scale).round() as usize).max(1),
+        ((source_height as f32 * scale).round() as usize).max(1),
+    )
 }
 
 fn rgb_from_yuv420(frame: &hibernia::h264::decoder::VideoFrame) -> Result<RgbFrame, String> {
@@ -934,7 +943,22 @@ fn stopped_summary(exit_code: i32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::stopped_summary;
+    use super::{preview_dimensions, stopped_summary};
+
+    #[test]
+    fn preview_dimensions_fit_portrait_android_to_host_height() {
+        assert_eq!(preview_dimensions(720, 1280), (383, 680));
+    }
+
+    #[test]
+    fn preview_dimensions_preserve_landscape_aspect_ratio() {
+        assert_eq!(preview_dimensions(1920, 1080), (540, 304));
+    }
+
+    #[test]
+    fn preview_dimensions_do_not_upscale_small_frames() {
+        assert_eq!(preview_dimensions(320, 240), (320, 240));
+    }
 
     #[test]
     fn stop_summary_discloses_docker_forced_kill() {
