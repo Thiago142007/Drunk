@@ -48,10 +48,42 @@ pub enum RedroidCommand {
         #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u16).range(1..=180))]
         seconds: u16,
     },
-    /// Forward Android output audio to the host using the optional scrcpy helper.
+    /// Start a Rust H.264 preview and forward Android 13 playback audio together.
+    Session {
+        /// Maximum session duration in seconds (screenrecord is time-limited).
+        #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u16).range(1..=180))]
+        seconds: u16,
+    },
+    /// Forward Android playback audio to the host using the optional scrcpy helper.
     Audio,
 }
 
 pub fn parse() -> Cli {
     Cli::parse()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, Command, RedroidCommand};
+    use clap::Parser;
+
+    #[test]
+    fn redroid_session_defaults_to_a_thirty_second_preview() {
+        let cli = Cli::try_parse_from(["drunk", "redroid", "session"]).unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Command::Redroid {
+                command: RedroidCommand::Session { seconds: 30 }
+            }
+        ));
+
+        let cli = Cli::try_parse_from(["drunk", "redroid", "session", "--seconds", "60"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Redroid {
+                command: RedroidCommand::Session { seconds: 60 }
+            }
+        ));
+    }
 }

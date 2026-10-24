@@ -55,6 +55,7 @@ target/debug/drunk redroid demo
 target/debug/drunk redroid view
 target/debug/drunk redroid stream-probe --seconds 5
 target/debug/drunk redroid stream --seconds 30
+target/debug/drunk redroid session --seconds 30
 target/debug/drunk redroid audio
 target/debug/drunk redroid stop
 ```
@@ -110,6 +111,12 @@ target/debug/drunk redroid stop
   O caminho `REMOTE_SUBMIX` do Android 12 foi substituído após produzir silêncio
   no monitor HDMI. No fim deste documento, Android 13 gerou sinal e o usuário
   confirmou ter ouvido o HELLO no caminho integrado.
+- `session --seconds N` inicia o helper scrcpy de áudio e o viewer H.264 Rust
+  em paralelo. O limite é 1–180 s (30 por padrão); Escape, fechamento da janela,
+  erro ou fim do stream encerram e recolhem o processo scrcpy. Requer Android
+  13+ para capturar áudio de reprodução. Uma sessão de 15 s com Native Audio
+  manteve vídeo e áudio simultâneos e produziu amostras HDMI não nulas; ao fim,
+  não restou processo scrcpy. O usuário confirmou que ouviu HELLO.
 - `stop` valida a configuração, para `drunk-redroid` e consulta o código de saída
   do container. Depois de parar, `start` pode recriar o container gerenciado e
   reutilizar o volume Android existente. Se Docker precisou enviar SIGKILL após o timeout, a CLI informa

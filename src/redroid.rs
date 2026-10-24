@@ -57,6 +57,7 @@ pub fn run(command: RedroidCommand) -> Result<(), String> {
         RedroidCommand::View => view(),
         RedroidCommand::StreamProbe { seconds } => stream_probe(seconds),
         RedroidCommand::Stream { seconds } => stream_view(seconds),
+        RedroidCommand::Session { seconds } => session(seconds),
         RedroidCommand::Audio => audio_bridge(),
     }
 }
@@ -647,19 +648,54 @@ fn audio_bridge() -> Result<(), String> {
         ));
     }
     validate_managed_container()?;
-    println!("Forwarding Android output audio through scrcpy; press Ctrl+C to stop.");
-    let status = Command::new("scrcpy")
-        .args(scrcpy_audio_args())
-        .status()
-        .map_err(|error| {
-            format!(
-                "could not execute scrcpy; install scrcpy and ensure it is available in PATH: {error}"
-            )
-        })?;
+    println!("Forwarding Android playback audio through scrcpy; press Ctrl+C to stop.");
+    let status = spawn_audio_bridge()?
+        .wait()
+        .map_err(|error| format!("could not wait for the scrcpy audio bridge: {error}"))?;
     if !status.success() {
         return Err(format!("scrcpy audio bridge exited with {status}"));
     }
     Ok(())
+}
+
+fn session(seconds: u16) -> Result<(), String> {
+    if state()?.as_deref() != Some("running") {
+        return Err(format!("{NAME} must be running before opening a session"));
+    }
+    validate_managed_container()?;
+    println!("Starting Android playback audio and Rust H.264 preview.");
+
+    let mut audio = spawn_audio_bridge()?;
+    thread::sleep(Duration::from_millis(500));
+    match audio.try_wait() {
+        Ok(Some(status)) => {
+            return Err(format!(
+                "scrcpy audio bridge exited during startup with {status}"
+            ));
+        }
+        Ok(None) => {}
+        Err(error) => {
+            cleanup_stream_child(&mut audio);
+            return Err(format!(
+                "could not check scrcpy audio bridge status: {error}"
+            ));
+        }
+    }
+
+    let preview_result = stream_view(seconds);
+    cleanup_stream_child(&mut audio);
+    preview_result
+}
+
+fn spawn_audio_bridge() -> Result<std::process::Child, String> {
+    Command::new("scrcpy")
+        .args(scrcpy_audio_args())
+        .spawn()
+        .map_err(|error| {
+            format!(
+                "could not execute scrcpy; install scrcpy and ensure it is available in PATH: {error}"
+            )
+        })
 }
 
 fn scrcpy_audio_args() -> [&'static str; 9] {
