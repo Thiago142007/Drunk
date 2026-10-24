@@ -167,5 +167,8 @@ instalação ou execução de Roblox neste spike, e não há promessa de suporte
 O gate de arquitetura/licenças e as limitações documentadas em
 [runtime-evaluation.md](runtime-evaluation.md) continuam aplicáveis. Nenhuma
 checagem de integridade, attestation ou restrição de plataforma é alterada.
-O probe ainda não foi executado contra o container redroid Android 12; não há
-evidência de saída H.264 recebida até esse ensaio ser feito.
+O probe foi executado contra o container redroid Android 12: recebeu 1.031.795
+bytes em 5,27 s (0,19 MiB/s), primeiro byte em 386 ms, e encontrou NALs Annex-B
+SPS, PPS e de imagem. Foi uma única captura da tela Android; não mede decode,
+apresentação, latência ponta a ponta ou estabilidade prolongada. Container,
+volume e imagem foram removidos depois da coleta.
