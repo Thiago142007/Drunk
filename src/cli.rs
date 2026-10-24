@@ -36,6 +36,12 @@ pub enum RedroidCommand {
     Demo,
     /// Show a low-rate Android screen preview in a desktop window with basic input.
     View,
+    /// Measure raw H.264 output from Android's screenrecord command.
+    StreamProbe {
+        /// Number of seconds to capture (1-30).
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u8).range(1..=30))]
+        seconds: u8,
+    },
 }
 
 pub fn parse() -> Cli {

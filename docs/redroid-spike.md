@@ -46,6 +46,7 @@ target/debug/drunk redroid status
 target/debug/drunk redroid start --allow-privileged
 target/debug/drunk redroid demo
 target/debug/drunk redroid view
+target/debug/drunk redroid stream-probe --seconds 5
 target/debug/drunk redroid stop
 ```
 
@@ -72,6 +73,12 @@ target/debug/drunk redroid stop
   tecla pressionada, arrastar/gestos, clipboard e áudio não estão implementados.
   A taxa de captura é baixa e cada frame inicia um processo ADB, portanto não é
   um caminho de streaming para jogos.
+- `stream-probe` pede ao Android para capturar H.264 bruto por até 30 segundos
+  via `adb shell -T`, conta bytes e exige NALs Annex-B de SPS, PPS e quadro.
+  Separa stderr do stream e reporta diagnóstico remoto quando `screenrecord`
+  falha. Informa throughput aproximado e tempo até o primeiro byte; não
+  decodifica nem salva vídeo. Foi adicionado para confirmar a disponibilidade
+  do transporte antes de integrar um decoder.
 - `stop` valida a configuração antes de parar `drunk-redroid`. O volume de dados e
   a imagem permanecem, assim como o objeto Docker parado. Para evitar
   reutilização silenciosa, um `start` posterior encontra esse objeto e exige
@@ -87,7 +94,7 @@ com acesso a esse endpoint ainda podem controlar o Android.
 
 O caminho de screenshots valida a janela, mas não serve para jogos. O próximo
 experimento deve substituir a captura por processo/frame por uma leitura contínua
-de `adb exec-out screenrecord --output-format=h264 -`. A implementação AOSP do
+de `adb shell -T screenrecord --output-format=h264 -`. A implementação AOSP do
 `screenrecord` confirma que o formato H.264 bruto aceita `-` como saída em
 stdout ([código AOSP](https://android.googlesource.com/platform/frameworks/av/+/297eaacfa6/cmds/screenrecord/screenrecord.cpp)).
 Isso ainda precisa ser confirmado contra a imagem redroid Android 12 usada aqui.
@@ -108,8 +115,10 @@ NAL numa `Vec` apenas ao encontrar o próximo start code. O frame é planar YUV
 Esses limites tornam obrigatório um ensaio com o encoder real do redroid antes
 de integrar essa dependência ao comando de preview.
 
-O experimento deve medir FPS entregue à janela, latência aproximada de captura
-até apresentação, uso de CPU e estabilidade durante vários minutos. Deve
+O probe inicial mede bytes, throughput e tempo até o primeiro byte; ainda deve
+ser executado no runtime para confirmar a entrega de H.264. O experimento com
+decoder deve medir FPS entregue à janela, latência aproximada de captura até
+apresentação, uso de CPU e estabilidade durante vários minutos. Deve
 encerrar o processo `screenrecord` ao fechar a janela ou ocorrer erro. O limite
 de clipes do `screenrecord` pode exigir reinicialização supervisionada do stream.
 Não integrar scrcpy nem decoder C/C++ nesse marco. Se a combinação não sustentar
@@ -158,3 +167,5 @@ instalação ou execução de Roblox neste spike, e não há promessa de suporte
 O gate de arquitetura/licenças e as limitações documentadas em
 [runtime-evaluation.md](runtime-evaluation.md) continuam aplicáveis. Nenhuma
 checagem de integridade, attestation ou restrição de plataforma é alterada.
+O probe ainda não foi executado contra o container redroid Android 12; não há
+evidência de saída H.264 recebida até esse ensaio ser feito.

@@ -1,4 +1,14 @@
-use std::{fs, process::Command};
+use std::{
+    fs,
+    io::Read,
+    process::{Command, Stdio},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU8, AtomicU64, Ordering},
+    },
+    thread,
+    time::{Duration, Instant},
+};
 
 use crate::cli::RedroidCommand;
 
@@ -34,6 +44,7 @@ pub fn run(command: RedroidCommand) -> Result<(), String> {
         }
         RedroidCommand::Demo => demo(),
         RedroidCommand::View => view(),
+        RedroidCommand::StreamProbe { seconds } => stream_probe(seconds),
     }
 }
 
@@ -255,6 +266,164 @@ fn view() -> Result<(), String> {
             last_capture = std::time::Instant::now();
         }
     }
+    Ok(())
+}
+
+fn stream_probe(seconds: u8) -> Result<(), String> {
+    if state()?.as_deref() != Some("running") {
+        return Err(format!(
+            "{NAME} must be running before probing its video stream"
+        ));
+    }
+    validate_managed_container()?;
+    connect_adb()?;
+
+    let started = Instant::now();
+    let mut child = Command::new("adb")
+        .args([
+            "-s",
+            ADB,
+            "shell",
+            "-T",
+            "screenrecord",
+            "--output-format=h264",
+            &format!("--time-limit={seconds}"),
+            "-",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("could not start Android screenrecord: {error}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "screenrecord stdout pipe was not created".to_owned())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "screenrecord stderr pipe was not created".to_owned())?;
+    let bytes_read = Arc::new(AtomicU64::new(0));
+    let first_byte_ms = Arc::new(AtomicU64::new(u64::MAX));
+    let observed_nal_types = Arc::new(AtomicU8::new(0));
+    let reader_bytes = Arc::clone(&bytes_read);
+    let reader_first_byte = Arc::clone(&first_byte_ms);
+    let reader_nal_types = Arc::clone(&observed_nal_types);
+    let reader = thread::spawn(move || {
+        let mut stdout = stdout;
+        let mut buffer = [0u8; 16 * 1024];
+        let mut zero_count = 0u8;
+        let mut expect_nal_header = false;
+        loop {
+            match stdout.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(count) => {
+                    reader_first_byte
+                        .compare_exchange(
+                            u64::MAX,
+                            started.elapsed().as_millis() as u64,
+                            Ordering::Relaxed,
+                            Ordering::Relaxed,
+                        )
+                        .ok();
+                    reader_bytes.fetch_add(count as u64, Ordering::Relaxed);
+                    for byte in &buffer[..count] {
+                        if expect_nal_header {
+                            let mask = match byte & 0x1f {
+                                7 => 0b001,     // SPS
+                                8 => 0b010,     // PPS
+                                1 | 5 => 0b100, // coded picture
+                                _ => 0,
+                            };
+                            reader_nal_types.fetch_or(mask, Ordering::Relaxed);
+                            expect_nal_header = false;
+                        }
+                        if *byte == 0 {
+                            zero_count = zero_count.saturating_add(1);
+                        } else if *byte == 1 && zero_count >= 2 {
+                            expect_nal_header = true;
+                            zero_count = 0;
+                        } else {
+                            zero_count = 0;
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    let stderr_output = Arc::new(Mutex::new(Vec::new()));
+    let reader_stderr_output = Arc::clone(&stderr_output);
+    let stderr_reader = thread::spawn(move || {
+        let mut stderr = stderr;
+        let mut buffer = [0u8; 4096];
+        loop {
+            match stderr.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(count) => {
+                    let mut captured = reader_stderr_output.lock().unwrap();
+                    let remaining = 16 * 1024usize - captured.len();
+                    captured.extend_from_slice(&buffer[..count.min(remaining)]);
+                }
+            }
+        }
+    });
+
+    let timeout = Duration::from_secs(u64::from(seconds) + 5);
+    let exit_status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = reader.join();
+                let _ = stderr_reader.join();
+                return Err(format!("could not check screenrecord status: {error}"));
+            }
+        }
+        if started.elapsed() > timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
+            let _ = stderr_reader.join();
+            return Err("screenrecord did not stop within its requested time limit".into());
+        }
+        thread::sleep(Duration::from_millis(50));
+    };
+    reader
+        .join()
+        .map_err(|_| "screenrecord stdout reader stopped unexpectedly".to_owned())?;
+    stderr_reader
+        .join()
+        .map_err(|_| "screenrecord stderr reader stopped unexpectedly".to_owned())?;
+    if !exit_status.success() {
+        let stderr_bytes = stderr_output.lock().unwrap();
+        let diagnostic = String::from_utf8_lossy(&stderr_bytes);
+        return Err(format!(
+            "screenrecord exited with {exit_status}: {}",
+            diagnostic.trim()
+        ));
+    }
+
+    let bytes = bytes_read.load(Ordering::Relaxed);
+    if bytes == 0 {
+        return Err("screenrecord exited successfully but returned no H.264 bytes".into());
+    }
+    if observed_nal_types.load(Ordering::Relaxed) & 0b111 != 0b111 {
+        return Err(format!(
+            "screenrecord returned {bytes} bytes, but the stream did not contain Annex-B SPS, PPS, and picture NAL units"
+        ));
+    }
+    let first = first_byte_ms.load(Ordering::Relaxed);
+    let elapsed = started.elapsed().as_secs_f64();
+    let mib_per_second = bytes as f64 / (1024.0 * 1024.0) / elapsed;
+    println!(
+        "Android H.264 stream received: {bytes} bytes in {elapsed:.2}s ({mib_per_second:.2} MiB/s)"
+    );
+    if first != u64::MAX {
+        println!("time to first byte: {first} ms");
+    }
+    println!("This probe checks transport only; it does not decode or display video.");
     Ok(())
 }
 
