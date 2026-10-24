@@ -55,10 +55,12 @@ target/debug/drunk redroid stop
 - `start` exige `--allow-privileged`, verifica `/proc/modules` e `docker info` e
   cria o container com os parâmetros fixos acima. Um container já em execução
   com a mesma imagem, modo privilegiado bridge, ADB somente em loopback, política sem
-  reinicialização e volume nomeado retorna sucesso sem reiniciá-lo.
-  `demo` também exige essa configuração. Se o nome existir com outra imagem ou estado, a CLI pede inspeção manual;
-  não remove nem substitui o container. O sucesso de `start` informa que Docker
-  iniciou o container; não garante que Android já terminou o boot.
+  reinicialização e volume nomeado retorna sucesso sem reiniciá-lo. Para um
+  container gerenciado em `exited`, `dead` ou `created`, valida a configuração,
+  remove somente o container parado e o recria usando o mesmo volume e imagem.
+  Estados inesperados e containers com configuração divergente exigem inspeção
+  manual. `demo` também exige essa configuração. O sucesso de `start` informa que
+  Docker iniciou o container; não garante que Android já terminou o boot.
 - `status` informa o estado Docker ou `absent`. Falha de acesso ao Docker é erro,
   não ausência de container.
 - `demo` conecta ADB ao endpoint fixo e solicita a atividade de Configurações
@@ -101,7 +103,8 @@ target/debug/drunk redroid stop
   A rota foi validada no redroid Android 12, mas audibilidade depende da saída
   PipeWire/ALSA e do dispositivo de áudio do host.
 - `stop` valida a configuração, para `drunk-redroid` e consulta o código de saída
-  do container. Se Docker precisou enviar SIGKILL após o timeout, a CLI informa
+  do container. Depois de parar, `start` pode recriar o container gerenciado e
+  reutilizar o volume Android existente. Se Docker precisou enviar SIGKILL após o timeout, a CLI informa
   isso explicitamente; no redroid 12 medido aqui, `Exited (137)` ocorreu mesmo
   com timeout de 60 segundos. O volume de dados e a imagem permanecem, assim como
   o objeto Docker parado. Para evitar reutilização silenciosa, um `start` posterior

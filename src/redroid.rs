@@ -108,14 +108,18 @@ fn start(allow_privileged: bool) -> Result<(), String> {
     }
     docker(&["info"])?;
     if let Some(state) = state()? {
+        validate_managed_container()?;
         if state == "running" {
-            validate_managed_container()?;
             println!("{NAME}: already running");
             return Ok(());
         }
-        return Err(format!(
-            "{NAME} already exists in state {state}; inspect it manually before removing or restarting it"
-        ));
+        if !stopped_container_can_be_recreated(&state) {
+            return Err(format!(
+                "{NAME} is in state {state}; only exited, dead, or created managed containers can be recreated automatically"
+            ));
+        }
+        docker(&["container", "rm", NAME])?;
+        println!("{NAME}: removed stopped container; reusing its Android data volume and image");
     }
     docker(&[
         "run",
@@ -1139,6 +1143,10 @@ fn docker(args: &[&str]) -> Result<String, String> {
     execute("docker", &pinned_args)
 }
 
+fn stopped_container_can_be_recreated(state: &str) -> bool {
+    matches!(state, "exited" | "dead" | "created")
+}
+
 fn stopped_summary(exit_code: i32) -> String {
     if exit_code == 137 {
         format!(
@@ -1155,8 +1163,8 @@ fn stopped_summary(exit_code: i32) -> String {
 mod tests {
     use super::{
         InitialFrameDecoder, YuvPlane, make_window_buffer, map_preview_to_android,
-        preview_dimensions, scrcpy_audio_args, screenrecord_dimensions, stopped_summary,
-        yuv420_to_rgb_preview,
+        preview_dimensions, scrcpy_audio_args, screenrecord_dimensions,
+        stopped_container_can_be_recreated, stopped_summary, yuv420_to_rgb_preview,
     };
     use image::{DynamicImage, RgbaImage};
     use std::io::Cursor;
@@ -1294,6 +1302,15 @@ mod tests {
         assert_eq!(screenrecord_dimensions(720, 1280), (384, 672));
         assert_eq!(screenrecord_dimensions(1920, 1080), (528, 304));
         assert_eq!(screenrecord_dimensions(320, 240), (320, 240));
+    }
+
+    #[test]
+    fn stopped_container_recreation_is_limited_to_inactive_states() {
+        assert!(stopped_container_can_be_recreated("exited"));
+        assert!(stopped_container_can_be_recreated("dead"));
+        assert!(stopped_container_can_be_recreated("created"));
+        assert!(!stopped_container_can_be_recreated("running"));
+        assert!(!stopped_container_can_be_recreated("paused"));
     }
 
     #[test]
