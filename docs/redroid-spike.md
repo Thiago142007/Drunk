@@ -194,6 +194,13 @@ com input físico. O track de áudio Android não comprova som audível no host.
 renderização observada foi SwiftShader software. O spike não inclui espera de
 boot, recuperação automática, atualização ou distribuição de imagens Android.
 
+Em uma tentativa posterior de validar input físico, o Native Audio foi aberto
+na janela `drunk redroid view` (720×1280), mas nenhum clique foi confirmado pelo
+usuário antes de encerrar o ensaio. Uma amostra de `ps` após cerca de 2 min 46 s
+mostrou o viewer em 68,2% de CPU e 1,2% de memória; não é uma média. A janela
+foi encerrada e o container, volume, imagem e endpoint ADB temporários foram
+removidos. O encaminhamento de input físico continua **não demonstrado**.
+
 Redroid é um projeto externo; Drunk não é cliente oficial do Roblox. Não houve
 instalação ou execução de Roblox neste spike, e não há promessa de suporte.
 O gate de arquitetura/licenças e as limitações documentadas em
