@@ -128,12 +128,12 @@ padrão, até 180 s). Não há reconexão automática para streams longos.
 
 O probe H.264 executado contra o redroid Android 12 recebeu 1.031.795 bytes em
 5,27 s (0,19 MiB/s), primeiro byte em 386 ms, e encontrou NALs Annex-B SPS, PPS e
-de imagem. Isso confirma somente que o transporte daquela execução funcionou.
-O build confirma a integração compilável, mas o decoder e a janela contínua ainda
-precisam ser exercitados juntos contra uma sessão Android e observados em
-execução. FPS, fluidez, latência ponta a ponta, uso de CPU e estabilidade por
-vários minutos não foram medidos. O uso de decoder inteiramente Rust não altera
-os gates de runtime, licenças e plataforma.
+de imagem. Em seguida, `redroid stream --seconds 5` decodificou ao menos um frame,
+abriu a janela 720×1280 e encerrou com código 0 ao atingir o limite do stream.
+O conteúdo da janela não foi inspecionado visualmente de forma independente.
+FPS, fluidez, latência ponta a ponta, uso de CPU e estabilidade por vários
+minutos não foram medidos. O uso de decoder inteiramente Rust não altera os
+gates de runtime, licenças e plataforma.
 
 Não foi validado Roblox, áudio, aceleração gráfica ou controle de jogo nesta
 experiência. Nenhuma compatibilidade é prometida. `view` permanece como caminho

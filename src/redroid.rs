@@ -536,6 +536,7 @@ fn stream_view(seconds: u16) -> Result<(), String> {
         "Rust H.264 preview opened ({source_width}×{source_height}); screenrecord stops after {seconds}s. Press Esc to close."
     );
 
+    let mut received_worker_message = None;
     let display_result = (|| -> Result<bool, String> {
         while window.is_open() && !window.is_key_down(minifb::Key::Escape) {
             if let Ok(frame) = frame_rx.try_recv() {
@@ -549,7 +550,10 @@ fn stream_view(seconds: u16) -> Result<(), String> {
                 .map_err(|error| format!("could not update H.264 preview window: {error}"))?;
             match status_rx.try_recv() {
                 Ok(StreamWorkerMessage::Error(error)) => return Err(error),
-                Ok(StreamWorkerMessage::Finished) => break,
+                Ok(message @ StreamWorkerMessage::Finished) => {
+                    received_worker_message = Some(message);
+                    break;
+                }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
@@ -574,14 +578,15 @@ fn stream_view(seconds: u16) -> Result<(), String> {
     let diagnostic = join_stderr(stderr_thread);
     let user_closed = display_result?;
     decoder_result?;
+    let worker_message = received_worker_message.or_else(|| worker_message.ok());
     match worker_message {
-        Ok(StreamWorkerMessage::Error(_)) if user_closed => {}
-        Ok(StreamWorkerMessage::Error(error)) if !diagnostic.is_empty() => {
+        Some(StreamWorkerMessage::Error(_)) if user_closed => {}
+        Some(StreamWorkerMessage::Error(error)) if !diagnostic.is_empty() => {
             return Err(format!("{error}; screenrecord: {diagnostic}"));
         }
-        Ok(StreamWorkerMessage::Error(error)) => return Err(error),
-        Ok(StreamWorkerMessage::Finished) | Err(std::sync::mpsc::TryRecvError::Empty) => {}
-        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+        Some(StreamWorkerMessage::Error(error)) => return Err(error),
+        Some(StreamWorkerMessage::Finished) => {}
+        None => {
             return Err("H.264 decoder worker stopped without a status message".into());
         }
     }
