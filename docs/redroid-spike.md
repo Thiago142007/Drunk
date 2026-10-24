@@ -99,7 +99,14 @@ progressivo 8-bit 4:2:0 e licença MIT ([repositório Hibernia](https://github.c
 Há, porém, uma diferença de publicação: o crates.io oferece `hibernia` 0.1.0,
 enquanto a documentação atual do repositório descreve uma API 0.2.0. Antes de
 adotá-lo, comparar a API publicada com a atual e fixar uma versão ou commit
-revisável; não depender implicitamente de um crate não publicado.
+revisável; não depender implicitamente de um crate não publicado. A versão
+publicada identifica-se como WIP, declara suporte Baseline e contém caminhos
+`todo!()`; portanto o decoder deve ficar isolado num worker com erros/panics
+convertidos em encerramento controlado do stream. O parser Annex-B entrega cada
+NAL numa `Vec` apenas ao encontrar o próximo start code. O frame é planar YUV
+4:2:0 e exige conversão que respeite stride/padding antes de chegar ao `minifb`.
+Esses limites tornam obrigatório um ensaio com o encoder real do redroid antes
+de integrar essa dependência ao comando de preview.
 
 O experimento deve medir FPS entregue à janela, latência aproximada de captura
 até apresentação, uso de CPU e estabilidade durante vários minutos. Deve
