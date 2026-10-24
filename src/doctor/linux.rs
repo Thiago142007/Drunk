@@ -103,9 +103,9 @@ fn cpu_features() -> Capability {
     let sse41 = has("sse4_1");
     let sse42 = has("sse4_2");
     let detail = format!(
-        "SSE4.1: {sse41}; SSE4.2: {sse42} across reported CPU flags; capability hint only."
+        "SSE4.1 minimum: {sse41}; SSE4.2 recommended: {sse42} across reported CPU flags; comparison only, and neither result establishes Drunk runtime compatibility."
     );
-    if sse41 && sse42 {
+    if sse41 {
         Capability::Supported { detail }
     } else {
         Capability::Unsupported { detail }
