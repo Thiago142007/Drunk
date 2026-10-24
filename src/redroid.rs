@@ -57,6 +57,7 @@ pub fn run(command: RedroidCommand) -> Result<(), String> {
         RedroidCommand::View => view(),
         RedroidCommand::StreamProbe { seconds } => stream_probe(seconds),
         RedroidCommand::Stream { seconds } => stream_view(seconds),
+        RedroidCommand::Audio => audio_bridge(),
     }
 }
 
@@ -448,6 +449,13 @@ fn stream_view(seconds: u16) -> Result<(), String> {
     validate_managed_container()?;
     connect_adb()?;
 
+    let device_frame = capture_frame(ADB)?;
+    let (stream_width, stream_height) = screenrecord_dimensions(
+        device_frame.width() as usize,
+        device_frame.height() as usize,
+    );
+    let stream_size = format!("{stream_width}x{stream_height}");
+
     let mut child = Command::new("adb")
         .args([
             "-s",
@@ -455,6 +463,8 @@ fn stream_view(seconds: u16) -> Result<(), String> {
             "shell",
             "-T",
             "screenrecord",
+            "--size",
+            &stream_size,
             "--output-format=h264",
             &format!("--time-limit={seconds}"),
             "-",
@@ -519,10 +529,13 @@ fn stream_view(seconds: u16) -> Result<(), String> {
         }
     };
 
-    let source_width = first_frame.width;
-    let source_height = first_frame.height;
-    let (width, height) = preview_dimensions(source_width, source_height);
-    let mut buffer = resize_rgb_nearest(&first_frame, width, height);
+    let source_width = first_frame.source_width;
+    let source_height = first_frame.source_height;
+    let android_width = device_frame.width() as usize;
+    let android_height = device_frame.height() as usize;
+    let width = first_frame.width;
+    let height = first_frame.height;
+    let mut buffer = first_frame.pixels;
     let mut window = match minifb::Window::new(
         "Drunk [EXPERIMENTAL • H.264 / Rust] — Android preview (Esc closes)",
         width,
@@ -539,21 +552,42 @@ fn stream_view(seconds: u16) -> Result<(), String> {
     };
     window.set_target_fps(60);
     println!(
-        "Rust H.264 preview opened ({source_width}×{source_height} source, {width}×{height} window); screenrecord stops after {seconds}s. Press Esc to close."
+        "Rust H.264 preview opened ({source_width}×{source_height} source, {width}×{height} window); click sends Android taps and supported keys are forwarded; screenrecord stops after {seconds}s. Press Esc to close."
     );
 
     let mut received_worker_message = None;
+    let mut previous_mouse_down = false;
     let display_result = (|| -> Result<bool, String> {
         while window.is_open() && !window.is_key_down(minifb::Key::Escape) {
             if let Ok(frame) = frame_rx.try_recv() {
-                if frame.width != source_width || frame.height != source_height {
+                if frame.source_width != source_width || frame.source_height != source_height {
                     return Err("Android video dimensions changed during the stream".into());
                 }
-                buffer = resize_rgb_nearest(&frame, width, height);
+                buffer = frame.pixels;
             }
             window
                 .update_with_buffer(&buffer, width, height)
                 .map_err(|error| format!("could not update H.264 preview window: {error}"))?;
+            let mouse_down = window.get_mouse_down(minifb::MouseButton::Left);
+            if mouse_down && !previous_mouse_down {
+                if let Some((x, y)) = window.get_mouse_pos(minifb::MouseMode::Discard) {
+                    let (android_x, android_y) =
+                        map_preview_to_android(x, y, width, height, android_width, android_height);
+                    let x = android_x.to_string();
+                    let y = android_y.to_string();
+                    send_adb_input(ADB, &["shell", "input", "tap", &x, &y])?;
+                }
+            }
+            previous_mouse_down = mouse_down;
+            for key in window.get_keys_pressed(minifb::KeyRepeat::No) {
+                if key == minifb::Key::Escape {
+                    continue;
+                }
+                if let Some(keycode) = android_keycode(key) {
+                    let keycode = keycode.to_string();
+                    send_adb_input(ADB, &["shell", "input", "keyevent", &keycode])?;
+                }
+            }
             match status_rx.try_recv() {
                 Ok(StreamWorkerMessage::Error(error)) => return Err(error),
                 Ok(message @ StreamWorkerMessage::Finished) => {
@@ -602,6 +636,42 @@ fn stream_view(seconds: u16) -> Result<(), String> {
     Ok(())
 }
 
+fn audio_bridge() -> Result<(), String> {
+    if state()?.as_deref() != Some("running") {
+        return Err(format!(
+            "{NAME} must be running before forwarding Android audio"
+        ));
+    }
+    validate_managed_container()?;
+    println!("Forwarding Android output audio through scrcpy; press Ctrl+C to stop.");
+    let status = Command::new("scrcpy")
+        .args(scrcpy_audio_args())
+        .status()
+        .map_err(|error| {
+            format!(
+                "could not execute scrcpy; install scrcpy and ensure it is available in PATH: {error}"
+            )
+        })?;
+    if !status.success() {
+        return Err(format!("scrcpy audio bridge exited with {status}"));
+    }
+    Ok(())
+}
+
+fn scrcpy_audio_args() -> [&'static str; 9] {
+    [
+        "--serial",
+        ADB,
+        "--no-control",
+        "--no-window",
+        "--max-size=320",
+        "--record=/dev/null",
+        "--record-format=mkv",
+        "--audio-source=output",
+        "--require-audio",
+    ]
+}
+
 enum StreamWorkerMessage {
     Finished,
     Error(String),
@@ -610,6 +680,8 @@ enum StreamWorkerMessage {
 struct RgbFrame {
     width: usize,
     height: usize,
+    source_width: usize,
+    source_height: usize,
     pixels: Vec<u32>,
 }
 
@@ -622,6 +694,7 @@ fn decode_android_stream(
     let reader = BufReader::with_capacity(128 * 1024, stdout);
     let mut parser = NalParser::new(reader);
     let mut decoder = Decoder::new();
+    let mut initial_frame_decoder = InitialFrameDecoder::new();
     let mut decoded_frames = 0usize;
     while let Some(nal) = parser.next() {
         let nal = nal.map_err(|error| format!("could not read H.264 NAL unit: {error}"))?;
@@ -629,6 +702,11 @@ fn decode_android_stream(
             .decode(&nal)
             .map_err(|error| format!("Hibernia could not decode H.264 NAL unit: {error:?}"))?;
         while let Some(frame) = decoder.retrieve_frame() {
+            decoded_frames += 1;
+            let frame = rgb_from_yuv420(&frame)?;
+            publish_latest_frame(frames, stale_frame_rx, frame);
+        }
+        if let Some(frame) = initial_frame_decoder.decode_until_idr(&nal)? {
             decoded_frames += 1;
             let frame = rgb_from_yuv420(&frame)?;
             publish_latest_frame(frames, stale_frame_rx, frame);
@@ -648,6 +726,39 @@ fn decode_android_stream(
         ));
     }
     Ok(())
+}
+
+struct InitialFrameDecoder {
+    decoder: Option<Decoder>,
+}
+
+impl InitialFrameDecoder {
+    fn new() -> Self {
+        Self {
+            decoder: Some(Decoder::new()),
+        }
+    }
+
+    fn decode_until_idr(
+        &mut self,
+        nal: &[u8],
+    ) -> Result<Option<hibernia::h264::decoder::VideoFrame>, String> {
+        let Some(decoder) = self.decoder.as_mut() else {
+            return Ok(None);
+        };
+        decoder
+            .decode(nal)
+            .map_err(|error| format!("Hibernia could not decode initial H.264 frame: {error:?}"))?;
+        if nal.first().is_some_and(|header| header & 0x1f == 5) {
+            decoder.flush().map_err(|error| {
+                format!("Hibernia could not flush initial H.264 frame: {error:?}")
+            })?;
+            let frame = decoder.retrieve_frame();
+            self.decoder = None;
+            return Ok(frame);
+        }
+        Ok(None)
+    }
 }
 
 fn publish_latest_frame(
@@ -678,6 +789,41 @@ fn preview_dimensions(source_width: usize, source_height: usize) -> (usize, usiz
     )
 }
 
+fn map_preview_to_android(
+    x: f32,
+    y: f32,
+    preview_width: usize,
+    preview_height: usize,
+    android_width: usize,
+    android_height: usize,
+) -> (u32, u32) {
+    let android_x = (x / preview_width.max(1) as f32 * android_width as f32)
+        .clamp(0.0, android_width.saturating_sub(1) as f32) as u32;
+    let android_y = (y / preview_height.max(1) as f32 * android_height as f32)
+        .clamp(0.0, android_height.saturating_sub(1) as f32) as u32;
+    (android_x, android_y)
+}
+
+fn screenrecord_dimensions(source_width: usize, source_height: usize) -> (usize, usize) {
+    let (width, height) = preview_dimensions(source_width, source_height);
+    (
+        align_video_dimension(width, 540),
+        align_video_dimension(height, 680),
+    )
+}
+
+fn align_video_dimension(dimension: usize, maximum: usize) -> usize {
+    const MACROBLOCK: usize = 16;
+    let lower = (dimension / MACROBLOCK) * MACROBLOCK;
+    let upper = lower.saturating_add(MACROBLOCK);
+    let aligned = if dimension.saturating_sub(lower) > MACROBLOCK / 2 && upper <= maximum {
+        upper
+    } else {
+        lower
+    };
+    aligned.max(MACROBLOCK)
+}
+
 fn rgb_from_yuv420(frame: &hibernia::h264::decoder::VideoFrame) -> Result<RgbFrame, String> {
     let y = &frame.planes[0];
     let u = &frame.planes[1];
@@ -687,39 +833,81 @@ fn rgb_from_yuv420(frame: &hibernia::h264::decoder::VideoFrame) -> Result<RgbFra
     if width == 0 || height == 0 || u.cfg.width == 0 || v.cfg.width == 0 {
         return Err("Hibernia produced an empty YUV frame".into());
     }
-    let capacity = width
-        .checked_mul(height)
-        .ok_or_else(|| "decoded frame dimensions exceed supported buffer size".to_owned())?;
-    let mut pixels = Vec::with_capacity(capacity);
-    for out_y in 0..height {
-        let y_row = (y.cfg.yorigin + out_y) * y.cfg.stride;
-        let u_row = (u.cfg.yorigin + out_y / 2) * u.cfg.stride;
-        let v_row = (v.cfg.yorigin + out_y / 2) * v.cfg.stride;
-        for out_x in 0..width {
-            let luminance = i32::from(y.data[y_row + y.cfg.xorigin + out_x]);
-            let cb = i32::from(u.data[u_row + u.cfg.xorigin + out_x / 2]) - 128;
-            let cr = i32::from(v.data[v_row + v.cfg.xorigin + out_x / 2]) - 128;
-            let c = (luminance - 16).max(0);
-            let red = ((298 * c + 409 * cr + 128) >> 8).clamp(0, 255) as u32;
-            let green = ((298 * c - 100 * cb - 208 * cr + 128) >> 8).clamp(0, 255) as u32;
-            let blue = ((298 * c + 516 * cb + 128) >> 8).clamp(0, 255) as u32;
-            pixels.push((red << 16) | (green << 8) | blue);
-        }
-    }
-    Ok(RgbFrame {
+    let (preview_width, preview_height) = preview_dimensions(width, height);
+    let capacity = preview_width
+        .checked_mul(preview_height)
+        .ok_or_else(|| "decoded preview dimensions exceed supported buffer size".to_owned())?;
+    let y_plane = YuvPlane {
+        data: &y.data,
+        stride: y.cfg.stride,
+        xorigin: y.cfg.xorigin,
+        yorigin: y.cfg.yorigin,
+    };
+    let u_plane = YuvPlane {
+        data: &u.data,
+        stride: u.cfg.stride,
+        xorigin: u.cfg.xorigin,
+        yorigin: u.cfg.yorigin,
+    };
+    let v_plane = YuvPlane {
+        data: &v.data,
+        stride: v.cfg.stride,
+        xorigin: v.cfg.xorigin,
+        yorigin: v.cfg.yorigin,
+    };
+    let pixels = yuv420_to_rgb_preview(
+        &y_plane,
+        &u_plane,
+        &v_plane,
         width,
         height,
+        preview_width,
+        preview_height,
+    );
+    debug_assert_eq!(pixels.len(), capacity);
+    Ok(RgbFrame {
+        width: preview_width,
+        height: preview_height,
+        source_width: width,
+        source_height: height,
         pixels,
     })
 }
 
-fn resize_rgb_nearest(frame: &RgbFrame, width: usize, height: usize) -> Vec<u32> {
-    let mut output = Vec::with_capacity(width * height);
-    for y in 0..height {
-        let source_y = y * frame.height / height;
-        for x in 0..width {
-            let source_x = x * frame.width / width;
-            output.push(frame.pixels[source_y * frame.width + source_x]);
+#[derive(Clone, Copy)]
+struct YuvPlane<'a> {
+    data: &'a [u8],
+    stride: usize,
+    xorigin: usize,
+    yorigin: usize,
+}
+
+fn yuv420_to_rgb_preview(
+    y: &YuvPlane<'_>,
+    u: &YuvPlane<'_>,
+    v: &YuvPlane<'_>,
+    source_width: usize,
+    source_height: usize,
+    output_width: usize,
+    output_height: usize,
+) -> Vec<u32> {
+    let mut output = Vec::with_capacity(output_width.saturating_mul(output_height));
+    for output_y in 0..output_height {
+        let source_y = output_y * source_height / output_height;
+        let y_row = (y.yorigin + source_y) * y.stride + y.xorigin;
+        let chroma_y = source_y / 2;
+        let u_row = (u.yorigin + chroma_y) * u.stride + u.xorigin;
+        let v_row = (v.yorigin + chroma_y) * v.stride + v.xorigin;
+        for output_x in 0..output_width {
+            let source_x = output_x * source_width / output_width;
+            let luminance = i32::from(y.data[y_row + source_x]);
+            let cb = i32::from(u.data[u_row + source_x / 2]) - 128;
+            let cr = i32::from(v.data[v_row + source_x / 2]) - 128;
+            let c = (luminance - 16).max(0);
+            let red = ((298 * c + 409 * cr + 128) >> 8).clamp(0, 255) as u32;
+            let green = ((298 * c - 100 * cb - 208 * cr + 128) >> 8).clamp(0, 255) as u32;
+            let blue = ((298 * c + 516 * cb + 128) >> 8).clamp(0, 255) as u32;
+            output.push((red << 16) | (green << 8) | blue);
         }
     }
     output
@@ -965,8 +1153,13 @@ fn stopped_summary(exit_code: i32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{make_window_buffer, preview_dimensions, stopped_summary};
+    use super::{
+        InitialFrameDecoder, YuvPlane, make_window_buffer, map_preview_to_android,
+        preview_dimensions, scrcpy_audio_args, screenrecord_dimensions, stopped_summary,
+        yuv420_to_rgb_preview,
+    };
     use image::{DynamicImage, RgbaImage};
+    use std::io::Cursor;
 
     #[test]
     fn screenshot_preview_uses_nearest_source_pixel_without_blending() {
@@ -986,6 +1179,90 @@ mod tests {
     }
 
     #[test]
+    fn yuv_preview_converts_only_the_sampled_output_pixel() {
+        let y_data = [100, 235, 16, 16];
+        let u_data = [90];
+        let v_data = [180];
+        let y = YuvPlane {
+            data: &y_data,
+            stride: 2,
+            xorigin: 0,
+            yorigin: 0,
+        };
+        let u = YuvPlane {
+            data: &u_data,
+            stride: 1,
+            xorigin: 0,
+            yorigin: 0,
+        };
+        let v = YuvPlane {
+            data: &v_data,
+            stride: 1,
+            xorigin: 0,
+            yorigin: 0,
+        };
+
+        assert_eq!(
+            yuv420_to_rgb_preview(&y, &u, &v, 2, 2, 1, 1),
+            vec![0x00b5_4615]
+        );
+    }
+
+    #[test]
+    fn static_h264_stream_exposes_its_initial_idr_frame_without_waiting_for_another_picture() {
+        let bitstream = include_bytes!("../tests/fixtures/native-audio-static.h264");
+        let mut parser = hibernia::h264::nal_parser::NalParser::new(Cursor::new(&bitstream[..]));
+        let mut initial_frame_decoder = InitialFrameDecoder::new();
+
+        let first_frame = parser.find_map(|nal| {
+            let nal = nal.expect("captured static Android H.264 NALs parse");
+            initial_frame_decoder
+                .decode_until_idr(&nal)
+                .expect("captured baseline IDR decodes")
+        });
+
+        let first_frame = first_frame.expect("the initial IDR should be displayed immediately");
+        assert_eq!(first_frame.planes[0].cfg.width, 720);
+        assert_eq!(first_frame.planes[0].cfg.height, 1280);
+    }
+
+    #[test]
+    fn screenrecord_sized_static_stream_exposes_its_initial_idr_frame() {
+        let bitstream = include_bytes!("../tests/fixtures/native-audio-static-384x672.h264");
+        let mut parser = hibernia::h264::nal_parser::NalParser::new(Cursor::new(&bitstream[..]));
+        let mut initial_frame_decoder = InitialFrameDecoder::new();
+
+        let first_frame = parser.find_map(|nal| {
+            let nal = nal.expect("captured scaled H.264 NALs parse");
+            initial_frame_decoder
+                .decode_until_idr(&nal)
+                .expect("captured scaled baseline IDR decodes")
+        });
+
+        let first_frame = first_frame.expect("the scaled initial IDR should be displayed");
+        assert_eq!(first_frame.planes[0].cfg.width, 384);
+        assert_eq!(first_frame.planes[0].cfg.height, 672);
+    }
+
+    #[test]
+    fn scrcpy_audio_bridge_uses_remote_output_without_showing_a_second_window() {
+        assert_eq!(
+            scrcpy_audio_args(),
+            [
+                "--serial",
+                "127.0.0.1:5555",
+                "--no-control",
+                "--no-window",
+                "--max-size=320",
+                "--record=/dev/null",
+                "--record-format=mkv",
+                "--audio-source=output",
+                "--require-audio",
+            ]
+        );
+    }
+
+    #[test]
     fn preview_dimensions_fit_portrait_android_to_host_height() {
         assert_eq!(preview_dimensions(720, 1280), (383, 680));
     }
@@ -998,6 +1275,25 @@ mod tests {
     #[test]
     fn preview_dimensions_do_not_upscale_small_frames() {
         assert_eq!(preview_dimensions(320, 240), (320, 240));
+    }
+
+    #[test]
+    fn h264_preview_coordinates_map_back_to_full_android_resolution() {
+        assert_eq!(
+            map_preview_to_android(192.0, 336.0, 384, 672, 720, 1280),
+            (360, 640)
+        );
+        assert_eq!(
+            map_preview_to_android(383.9, 671.9, 384, 672, 720, 1280),
+            (719, 1279)
+        );
+    }
+
+    #[test]
+    fn screenrecord_dimensions_fit_the_window_and_are_encoder_aligned() {
+        assert_eq!(screenrecord_dimensions(720, 1280), (384, 672));
+        assert_eq!(screenrecord_dimensions(1920, 1080), (528, 304));
+        assert_eq!(screenrecord_dimensions(320, 240), (320, 240));
     }
 
     #[test]

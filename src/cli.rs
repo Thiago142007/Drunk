@@ -48,6 +48,8 @@ pub enum RedroidCommand {
         #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u16).range(1..=180))]
         seconds: u16,
     },
+    /// Forward Android output audio to the host using the optional scrcpy helper.
+    Audio,
 }
 
 pub fn parse() -> Cli {

@@ -48,6 +48,7 @@ target/debug/drunk redroid demo
 target/debug/drunk redroid view
 target/debug/drunk redroid stream-probe --seconds 5
 target/debug/drunk redroid stream --seconds 30
+target/debug/drunk redroid audio
 target/debug/drunk redroid stop
 ```
 
@@ -82,13 +83,23 @@ target/debug/drunk redroid stop
   do transporte antes de integrar um decoder.
 - `stream` abre uma prévia contínua via `adb shell -T screenrecord`, decodifica
   cada NAL no crate Rust `hibernia` 0.1.0 e converte os planos YUV 4:2:0 para a
-  janela `minifb`. O limite selecionável é 1–180 segundos (30 por padrão), pois
-  `screenrecord` tem duração máxima finita. Escape fecha a janela e o processo
-  local ADB é encerrado e recolhido. O decoder fica em uma thread separada; um
-  panic do Hibernia vira erro compreensível. A fila de frames tem capacidade um
-  e substitui frames antigos para não acumular atraso se a janela não acompanhar
-  o decoder. Esta é uma experiência de visualização; o comando não implementa
-  entrada de jogo nem áudio.
+  janela `minifb`, convertendo direto para a resolução da janela em vez de
+  materializar um frame RGB em tamanho integral. Um decoder auxiliar libera o
+  primeiro IDR para que uma tela estática também apareça sem esperar outro quadro;
+  o decoder contínuo preserva suas referências. O limite selecionável é 1–180
+  segundos (30 por padrão), pois `screenrecord` tem duração máxima finita.
+  Escape fecha a janela e o processo local ADB é encerrado e recolhido. O decoder
+  fica em uma thread separada; um panic do Hibernia vira erro compreensível. A
+  fila de frames tem capacidade um e substitui frames antigos para não acumular
+  atraso se a janela não acompanhar o decoder. Esta é uma experiência de
+  visualização e não implementa os controles completos de um jogo.
+- `audio` encaminha a saída Android pelo scrcpy em `REMOTE_SUBMIX`, sem abrir
+  uma segunda janela. Requer `scrcpy` instalado e disponível no `PATH`; ele é um
+  componente externo e sua licença/versão deve ser incluída em qualquer revisão
+  de distribuição. O comando mantém um sink de vídeo oculto em `/dev/null` para
+  o scrcpy continuar ativo enquanto encaminha áudio. Ctrl+C encerra o helper.
+  A rota foi validada no redroid Android 12, mas audibilidade depende da saída
+  PipeWire/ALSA e do dispositivo de áudio do host.
 - `stop` valida a configuração, para `drunk-redroid` e consulta o código de saída
   do container. Se Docker precisou enviar SIGKILL após o timeout, a CLI informa
   isso explicitamente; no redroid 12 medido aqui, `Exited (137)` ocorreu mesmo
@@ -155,6 +166,26 @@ anterior marcou cerca de 102%. A conversão YUV→RGB e o decoder Hibernia apare
 entre os custos relevantes. Uma execução por configuração não basta para
 caracterizar desempenho ou fluidez do stream.
 
+Depois da conversão direta para o tamanho da janela e da redução do stream a
+macroblocos H.264 de 16 pixels, uma execução release com Hello GL2 marcou
+5,15 s de `task-clock` em 30,62 s (16,8% de um núcleo), contra 11,40 s
+(37,5%) na execução anterior em resolução integral. São execuções únicas, sem
+mediana e sem FPS/latência; a diferença é evidência preliminar, não uma garantia.
+
+O viewer H.264 usa agora a dimensão reduzida e arredondada a macroblocos: 384×672 em retrato e 528×304 em paisagem. Em 384×680, o decoder Hibernia ignorava o crop do SPS e criava 8 linhas extras; a resolução ajustada evita essa área de padding. Cliques no viewer H.264 enviam toques ADB escalados à tela Android, e algumas teclas têm mapeamento ADB de evento único. Toques e keyevents básicos não equivalem a controles contínuos ou mapeamento de gamepad.
+
+Uma tela estática do Native Audio gerou apenas SPS, PPS e um NAL IDR. O Hibernia
+mantém esse primeiro quadro em seu DPB de referência, portanto o viewer anterior
+esperava até 20 s por um quadro que não chegava. O Drunk agora decodifica esse
+IDR em uma instância auxiliar, a libera e mantém o decoder de streaming intacto.
+A captura de resolução reduzida mostrou que Hibernia ignora o frame crop do SPS:
+384×680 era exposto como 384×688, com linhas de padding no final. O tamanho
+passou a ser alinhado a macroblocos: 384×672 em retrato e 528×304 em paisagem.
+O teste do fixture estático decodificou um frame 384×672, e Hello GL2 abriu
+uma janela 384×672 por 30 s. Cliques enviam toques ADB escalados para a resolução Android;
+teclas mapeadas enviam keyevents individuais. O decoder de preview ainda tem
+suporte WIP a Baseline apenas.
+
 Em uma repetição posterior autorizada, `redroid stream --seconds 30` também abriu
 a janela 720×1280 e permaneceu até o limite configurado. Uma amostra de processo
 aos 28 s mostrou o Drunk em aproximadamente 92% de CPU e 1,3% de memória, com
@@ -170,20 +201,20 @@ Também foram compilados e lançados os samples oficiais `Hello GL2` e `Native
 Audio` do Android NDK Samples. GL2 desenhou o triângulo e informou ANGLE sobre
 Vulkan SwiftShader; isso é renderização por software. O botão local HELLO do
 Native Audio criou um track no AudioFlinger com rota Android `speaker`, sem
-underruns na amostra. Não se confirmou áudio audível no host e a permissão
-`RECORD_AUDIO` ficou negada. Em diagnóstico separado, scrcpy 3.3.4 no redroid
-Android 12 falhou ao iniciar captura `playback` com
-`NoSuchFieldException: MIX_ROLE_PLAYERS`; uma tentativa de gravar `output` não
-recebeu stream de áudio para criar o arquivo. Durante a reprodução, não foi
-observado sink-input no PipeWire/PulseAudio nem PCM aberto em ALSA. Isso indica
-que este runtime não forneceu um caminho de áudio capturável ao host; não é uma
-medição de som em alto-falantes. O upstream redroid também registra áudio como
-limitação conhecida e aponta a necessidade de HAL/ponte de áudio ([issue 18 do
-projeto](https://github.com/remote-android/redroid-doc/issues/18)). Cada app
-permaneceu aberto por 60 s e foi encerrado e relançado duas vezes sem
+underruns na amostra. A permissão `RECORD_AUDIO` ficou negada. Scrcpy 3.3.4
+falhou em `--audio-source=playback` com `NoSuchFieldException: MIX_ROLE_PLAYERS`,
+como esperado para Android 12: essa fonte requer Android 13+. A fonte compatível
+`--audio-source=output` funcionou quando mantida com vídeo oculto e gravação
+descartada em `/dev/null`. O comando `drunk redroid audio` iniciou esse helper;
+após toques HELLO, PipeWire mostrou um sink-input scrcpy ativo, a saída HDMI ficou
+`RUNNING` e um PCM ALSA do host também ficou `RUNNING`. Isso demonstra entrega ao
+stack de áudio do host, mas o usuário ainda não confirmou que ouviu o som. O
+upstream redroid documenta componentes `r_submix`, embora WebRTC/áudio ainda seja
+uma limitação conhecida ([issue 18 do projeto](https://github.com/remote-android/redroid-doc/issues/18)).
+Cada app permaneceu aberto por 60 s e foi encerrado e relançado duas vezes sem
 `FATAL EXCEPTION` nos logs consultados.
 
-Não foi validado Roblox, áudio audível no host, aceleração gráfica física ou
+Não foi validado Roblox, som audível por uma pessoa, aceleração gráfica física ou
 controle de jogo nesta experiência. Nenhuma compatibilidade é prometida. `view`
 permanece como caminho separado de screenshots lentos para diagnóstico; `stream`
 é a prévia H.264 experimental medida acima e ainda apresenta custo de CPU alto.
@@ -212,10 +243,10 @@ serviço local depender dele.
 
 ## Limites deste marco
 
-O viewer H.264 abriu uma janela por 30 s; uma amostra do processo marcou
-aproximadamente 92% de CPU. Hello GL2 e Native Audio foram inspecionados por
+O viewer H.264 abriu uma janela por 30 s. Após reduzir o stream a 384×672, uma
+execução marcou 16,8% de um núcleo lógico; FPS e latência continuam sem medida. Hello GL2 e Native Audio foram inspecionados por
 capturas ADB. O encaminhamento de um toque físico pelo viewer `view` foi
-confirmado no teste posterior descrito abaixo; teclado, controles de jogo,
+confirmado no teste posterior descrito abaixo; teclado contínuo, controles de jogo,
 alternância de foco e estabilidade prolongada não foram validados. O track de
 áudio Android não comprova som audível no host. A renderização observada foi
 SwiftShader software. O spike não inclui espera de boot, recuperação
