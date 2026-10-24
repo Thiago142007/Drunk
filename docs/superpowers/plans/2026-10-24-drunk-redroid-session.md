@@ -57,3 +57,17 @@ and 78,040 KiB maximum RSS for the command and its children. The run exited 0;
 the container was then stopped and Docker reported exit 137, preserving its
 volume and image. This is a single-run baseline, not an acceptance threshold or
 a product-performance claim.
+
+## Follow-up: audio-child cleanup on early return (2026-10-24)
+
+Started a 120-second session and confirmed both scrcpy and Android
+`screenrecord` were active. The available computer-use bridge did not expose
+native windows (`getState()` returned no apps and `listWindows` was unavailable),
+so closing the preview through its window controls could not be exercised.
+Instead, a controlled termination of Android `screenrecord` made the viewer
+return with exit status 143. The session returned the corresponding ADB error,
+and a process check confirmed that the host scrcpy child had also been reaped.
+The redroid container was stopped after the check (Docker exit 137; volume and
+image preserved). This verifies audio-child cleanup on a viewer error path, but
+does not prove cleanup after the user closes the window; that check remains
+open.
