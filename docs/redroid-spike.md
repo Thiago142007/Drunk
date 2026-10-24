@@ -148,17 +148,27 @@ e não define `StopSignal`; `adb shell reboot -p` retornou `Done`, mas o contain
 permaneceu em execução. A causa exata não foi confirmada; parada graciosa não foi
 demonstrada. Container, volume, imagem e endpoint ADB temporários foram removidos.
 
-Não foi validado Roblox, áudio, aceleração gráfica ou controle de jogo nesta
-experiência. Nenhuma compatibilidade é prometida. `view` permanece como caminho
-separado de screenshots lentos para diagnóstico.
+Também foram compilados e lançados os samples oficiais `Hello GL2` e `Native
+Audio` do Android NDK Samples. GL2 desenhou o triângulo e informou ANGLE sobre
+Vulkan SwiftShader; isso é renderização por software. O botão local HELLO do
+Native Audio criou um track no AudioFlinger com rota Android `speaker`, sem
+underruns na amostra. Não se confirmou áudio audível no host e a permissão
+`RECORD_AUDIO` ficou negada. Cada app permaneceu aberto por 60 s e foi encerrado
+e relançado duas vezes sem `FATAL EXCEPTION` nos logs consultados. A captura da
+tela não mede áudio físico, input físico nem estabilidade prolongada do viewer.
+
+Não foi validado Roblox, áudio audível no host, aceleração gráfica física ou
+controle de jogo nesta experiência. Nenhuma compatibilidade é prometida. `view`
+permanece como caminho separado de screenshots lentos para diagnóstico; `stream`
+é a prévia H.264 experimental medida acima e ainda apresenta custo de CPU alto.
 
 ## Limpeza do laboratório
 
-Executado após as verificações: `drunk redroid stop`, remoção do container
-`drunk-redroid`, do volume `drunk-redroid-data`, da imagem fixada, desconexão do
-ADB em `127.0.0.1:5555`. `drunk redroid status` confirmou `absent` depois da
-limpeza. O servidor ADB foi mantido porque também listava um endpoint adicional
-`emulator-5554`; não o encerramos para evitar interromper outro dispositivo.
+Após cada rodada, o container `drunk-redroid`, o volume `drunk-redroid-data` e a
+imagem fixada foram removidos, e o endpoint `127.0.0.1:5555` foi desconectado.
+Na limpeza inicial havia também um endpoint ADB `emulator-5554`, que foi deixado
+intacto; na última limpeza `adb devices -l` ficou sem dispositivos. O servidor ADB
+em si não foi encerrado.
 
 Na verificação posterior, `binder_linux` ainda estava carregado, mas não havia
 montagem ativa em `/dev/binderfs`. O spike não descarrega o módulo. Se o usuário
@@ -176,14 +186,13 @@ serviço local depender dele.
 
 ## Limites deste marco
 
-O viewer abriu uma janela nativa e recebeu frames ADB durante a execução, mas a
-janela não foi inspecionada visualmente de forma independente. O encaminhamento
-de toque/teclas está implementado, mas input físico não foi validado nesta rodada.
-Não há integração de áudio ou controle completo das sessões. O viewer usa
-capturas lentas, não um stream; isso comprova somente o caminho de janela e
-decodificação de imagem. Não comprova aceleração gráfica, áudio audível ou
-funcionamento de jogos. O spike não inclui espera de boot, recuperação automática,
-atualização ou distribuição de imagens Android.
+O viewer H.264 abriu uma janela por 30 s, mas a própria janela não foi
+inspecionada visualmente de forma independente; uma amostra do processo marcou
+aproximadamente 92% de CPU. Hello GL2 e Native Audio foram inspecionados por
+capturas ADB; o encaminhamento de toque/teclas pela janela Drunk não foi testado
+com input físico. O track de áudio Android não comprova som audível no host. A
+renderização observada foi SwiftShader software. O spike não inclui espera de
+boot, recuperação automática, atualização ou distribuição de imagens Android.
 
 Redroid é um projeto externo; Drunk não é cliente oficial do Roblox. Não houve
 instalação ou execução de Roblox neste spike, e não há promessa de suporte.
