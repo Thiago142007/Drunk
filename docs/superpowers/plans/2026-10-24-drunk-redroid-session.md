@@ -41,3 +41,19 @@ During HELLO, HDMI monitoring recorded 41,088 nonzero samples in three seconds;
 the user confirmed hearing it. The session returned success at its time limit,
 and no scrcpy server/client process remained. The data volume and image remain
 available; the managed container was stopped after the test.
+
+## Follow-up: preview-rate baseline (2026-10-24)
+
+The viewer now reports new frames presented to its window and their average
+updates per second when a session ends. This measures Rust preview updates, not
+the Android app's rendered FPS, input-to-display latency, or audio latency.
+Only distinct frames received from the bounded latest-frame channel are
+counted; frames dropped before presentation are not counted.
+
+With Hello GL2 active, one 30-second Android 13 release session presented 449
+frames in 29.94 seconds (15.00 updates/s). `/usr/bin/time -v` measured 5.52 s
+user CPU and 1.14 s system CPU over 31.31 s wall time (21% of one logical CPU)
+and 78,040 KiB maximum RSS for the command and its children. The run exited 0;
+the container was then stopped and Docker reported exit 137, preserving its
+volume and image. This is a single-run baseline, not an acceptance threshold or
+a product-performance claim.

@@ -189,6 +189,14 @@ macroblocos H.264 de 16 pixels, uma execução release com Hello GL2 marcou
 (37,5%) na execução anterior em resolução integral. São execuções únicas, sem
 mediana e sem FPS/latência; a diferença é evidência preliminar, não uma garantia.
 
+Na sessão integrada Android 13 seguinte, o viewer passou a reportar quadros
+distintos apresentados por segundo. Com Hello GL2 em primeiro plano, release
+apresentou 449 quadros em 29,94 s (15,00 atualizações/s) em 384×672. O conjunto
+Drunk e scrcpy usou 5,52 s de CPU user mais 1,14 s system em 31,31 s (21% de um
+núcleo lógico) e RSS máximo de 78.040 KiB. Isso mede a atualização da janela
+Drunk, não o FPS interno do Android nem latência. É uma execução, não mediana ou
+critério de desempenho; ver [avaliação](runtime-evaluation.md#32-spike-redroid-executado).
+
 O viewer H.264 usa agora a dimensão reduzida e arredondada a macroblocos: 384×672 em retrato e 528×304 em paisagem. Em 384×680, o decoder Hibernia ignorava o crop do SPS e criava 8 linhas extras; a resolução ajustada evita essa área de padding. Cliques no viewer H.264 enviam toques ADB escalados à tela Android, e algumas teclas têm mapeamento ADB de evento único. Toques e keyevents básicos não equivalem a controles contínuos ou mapeamento de gamepad.
 
 Uma tela estática do Native Audio gerou apenas SPS, PPS e um NAL IDR. O Hibernia

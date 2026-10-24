@@ -561,6 +561,8 @@ fn stream_view(seconds: u16) -> Result<(), String> {
     );
 
     let mut received_worker_message = None;
+    let mut displayed_frames = 1usize;
+    let preview_started = Instant::now();
     let mut previous_mouse_down = false;
     let display_result = (|| -> Result<bool, String> {
         while window.is_open() && !window.is_key_down(minifb::Key::Escape) {
@@ -569,6 +571,7 @@ fn stream_view(seconds: u16) -> Result<(), String> {
                     return Err("Android video dimensions changed during the stream".into());
                 }
                 buffer = frame.pixels;
+                displayed_frames += 1;
             }
             window
                 .update_with_buffer(&buffer, width, height)
@@ -637,6 +640,13 @@ fn stream_view(seconds: u16) -> Result<(), String> {
     }
     if !diagnostic.is_empty() {
         println!("screenrecord: {diagnostic}");
+    }
+    let elapsed = preview_started.elapsed();
+    if let Some(updates_per_second) = preview_update_rate(displayed_frames, elapsed) {
+        println!(
+            "Rust preview updates: {displayed_frames} displayed frames in {:.2}s ({updates_per_second:.2} updates/s)",
+            elapsed.as_secs_f64()
+        );
     }
     Ok(())
 }
@@ -827,6 +837,11 @@ fn preview_dimensions(source_width: usize, source_height: usize) -> (usize, usiz
         ((source_width as f32 * scale).round() as usize).max(1),
         ((source_height as f32 * scale).round() as usize).max(1),
     )
+}
+
+fn preview_update_rate(frame_count: usize, elapsed: Duration) -> Option<f64> {
+    let seconds = elapsed.as_secs_f64();
+    (seconds > 0.0).then(|| frame_count as f64 / seconds)
 }
 
 fn map_preview_to_android(
@@ -1199,11 +1214,12 @@ fn stopped_summary(exit_code: i32) -> String {
 mod tests {
     use super::{
         InitialFrameDecoder, YuvPlane, make_window_buffer, map_preview_to_android,
-        preview_dimensions, scrcpy_audio_args, screenrecord_dimensions,
+        preview_dimensions, preview_update_rate, scrcpy_audio_args, screenrecord_dimensions,
         stopped_container_can_be_recreated, stopped_summary, yuv420_to_rgb_preview,
     };
     use image::{DynamicImage, RgbaImage};
     use std::io::Cursor;
+    use std::time::Duration;
 
     #[test]
     fn screenshot_preview_uses_nearest_source_pixel_without_blending() {
@@ -1319,6 +1335,12 @@ mod tests {
     #[test]
     fn preview_dimensions_do_not_upscale_small_frames() {
         assert_eq!(preview_dimensions(320, 240), (320, 240));
+    }
+
+    #[test]
+    fn preview_update_rate_uses_displayed_frames_and_elapsed_seconds() {
+        assert_eq!(preview_update_rate(90, Duration::from_secs(30)), Some(3.0));
+        assert_eq!(preview_update_rate(1, Duration::ZERO), None);
     }
 
     #[test]
