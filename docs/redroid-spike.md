@@ -135,6 +135,14 @@ FPS, fluidez, latência ponta a ponta, uso de CPU e estabilidade por vários
 minutos não foram medidos. O uso de decoder inteiramente Rust não altera os
 gates de runtime, licenças e plataforma.
 
+Em uma repetição posterior autorizada, `redroid stream --seconds 30` também abriu
+a janela 720×1280 e permaneceu até o limite configurado. Uma amostra de processo
+aos 28 s mostrou o Drunk em aproximadamente 92% de CPU e 1,3% de memória, com
+`screenrecord` em 0,4% de CPU. É apenas uma amostra, sem média de CPU, FPS ou
+latência; o conteúdo da janela não foi inspecionado independentemente. O estado
+Docker após `drunk redroid stop` foi `Exited (137)`, então parada graciosa não foi
+demonstrada. Container, volume, imagem e endpoint ADB temporários foram removidos.
+
 Não foi validado Roblox, áudio, aceleração gráfica ou controle de jogo nesta
 experiência. Nenhuma compatibilidade é prometida. `view` permanece como caminho
 separado de screenshots lentos para diagnóstico.
@@ -147,10 +155,10 @@ ADB em `127.0.0.1:5555`. `drunk redroid status` confirmou `absent` depois da
 limpeza. O servidor ADB foi mantido porque também listava um endpoint adicional
 `emulator-5554`; não o encerramos para evitar interromper outro dispositivo.
 
-A montagem BinderFS em `/dev/binderfs` e o módulo `binder_linux` permanecem no
-host. A tentativa de limpeza não interativa com `sudo -n` foi recusada porque
-este ambiente exige autenticação interativa. Depois de confirmar que nenhum outro
-processo usa BinderFS, o usuário pode executar no host:
+Na verificação posterior, `binder_linux` ainda estava carregado, mas não havia
+montagem ativa em `/dev/binderfs`. O spike não descarrega o módulo. Se o usuário
+quiser removê-lo, deve primeiro confirmar que nenhum outro serviço local depende
+dele e então executar no host:
 
 ```bash
 sudo umount /dev/binderfs
