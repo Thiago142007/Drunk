@@ -15,7 +15,7 @@ use hibernia::h264::{decoder::Decoder, nal_parser::NalParser};
 
 const NAME: &str = "drunk-redroid";
 const IMAGE: &str =
-    "redroid/redroid@sha256:a6c464bbedcf1dcb67dbf91f329fbb19bee5b50631f0ca6bda6ed7c41b0e64e2";
+    "redroid/redroid@sha256:36d6d21bcf7e92d78eabaa6f1748e5cf0e9fb15176c0091794168be012c5c22e";
 const ADB: &str = "127.0.0.1:5555";
 
 pub fn run(command: RedroidCommand) -> Result<(), String> {
@@ -671,7 +671,7 @@ fn scrcpy_audio_args() -> [&'static str; 9] {
         "--max-size=320",
         "--record=/dev/null",
         "--record-format=mkv",
-        "--audio-source=output",
+        "--audio-source=playback",
         "--require-audio",
     ]
 }
@@ -1253,7 +1253,7 @@ mod tests {
     }
 
     #[test]
-    fn scrcpy_audio_bridge_uses_remote_output_without_showing_a_second_window() {
+    fn scrcpy_audio_bridge_uses_playback_capture_without_showing_a_second_window() {
         assert_eq!(
             scrcpy_audio_args(),
             [
@@ -1264,7 +1264,7 @@ mod tests {
                 "--max-size=320",
                 "--record=/dev/null",
                 "--record-format=mkv",
-                "--audio-source=output",
+                "--audio-source=playback",
                 "--require-audio",
             ]
         );

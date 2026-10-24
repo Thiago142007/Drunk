@@ -7,6 +7,13 @@ são componentes externos e não são inteiramente Rust.
 O **NO-GO de produto permanece**: esta execução não seleciona o backend final,
 resolve o inventário de licenças nem demonstra compatibilidade com Roblox.
 
+**Atualização do controlador (2026-10-24):** o digest padrão agora é o redroid
+Android 13 `sha256:36d6d21bcf7e92d78eabaa6f1748e5cf0e9fb15176c0091794168be012c5c22e`
+(API 33), necessário para a captura `playback` de áudio do scrcpy. O relato
+Android 12 abaixo é histórico; o teste Android 13 e a correção de áudio estão
+registrados no fim deste documento. Esta troca de imagem do protótipo não aprova
+redroid como backend de produto.
+
 ## Ambiente observado
 
 O laboratório existente usa Linux x86-64 com `binder_linux` carregado e Docker.
@@ -95,20 +102,20 @@ target/debug/drunk redroid stop
   fila de frames tem capacidade um e substitui frames antigos para não acumular
   atraso se a janela não acompanhar o decoder. Esta é uma experiência de
   visualização e não implementa os controles completos de um jogo.
-- `audio` encaminha a saída Android pelo scrcpy em `REMOTE_SUBMIX`, sem abrir
+- `audio` captura reprodução de apps Android via scrcpy `playback` (Android 13+), sem abrir
   uma segunda janela. Requer `scrcpy` instalado e disponível no `PATH`; ele é um
   componente externo e sua licença/versão deve ser incluída em qualquer revisão
   de distribuição. O comando mantém um sink de vídeo oculto em `/dev/null` para
   o scrcpy continuar ativo enquanto encaminha áudio. Ctrl+C encerra o helper.
-  A rota foi validada no redroid Android 12, mas audibilidade depende da saída
-  PipeWire/ALSA e do dispositivo de áudio do host.
+  O caminho `REMOTE_SUBMIX` do Android 12 foi substituído após produzir silêncio
+  no monitor HDMI. No fim deste documento, Android 13 gerou sinal e o usuário
+  confirmou ter ouvido o HELLO no caminho integrado.
 - `stop` valida a configuração, para `drunk-redroid` e consulta o código de saída
   do container. Depois de parar, `start` pode recriar o container gerenciado e
   reutilizar o volume Android existente. Se Docker precisou enviar SIGKILL após o timeout, a CLI informa
-  isso explicitamente; no redroid 12 medido aqui, `Exited (137)` ocorreu mesmo
-  com timeout de 60 segundos. O volume de dados e a imagem permanecem, assim como
-  o objeto Docker parado. Para evitar reutilização silenciosa, um `start` posterior
-  encontra esse objeto e exige inspeção manual. A CLI não descarrega Binder nem
+  isso explicitamente; no redroid medido aqui, `Exited (137)` ocorreu mesmo
+  com timeout de 60 segundos. O container inativo é removido após validar sua
+  configuração; volume e imagem permanecem. A CLI não descarrega Binder nem
   desmonta uma montagem temporária do host.
 
 O modo privilegiado reduz o isolamento do container. O usuário autorizou esse uso
@@ -198,7 +205,10 @@ Docker após `drunk redroid stop` foi `Exited (137)`. `docker container stop --t
 60` também deixou `Exited (137)` após 62,37 s. A imagem usa `/init` como entrypoint
 e não define `StopSignal`; `adb shell reboot -p` retornou `Done`, mas o container
 permaneceu em execução. A causa exata não foi confirmada; parada graciosa não foi
-demonstrada. Container, volume, imagem e endpoint ADB temporários foram removidos.
+demonstrada. O CLI agora valida e recria o container parado preservando o volume.
+Depois, um teste real confirmou exit 137, restart, novo boot Android e persistência
+de um marcador em `/data/local/tmp`. Esse ciclo confirma recuperação após parada,
+mas não torna o shutdown gracioso.
 
 Também foram compilados e lançados os samples oficiais `Hello GL2` e `Native
 Audio` do Android NDK Samples. GL2 desenhou o triângulo e informou ANGLE sobre
@@ -252,8 +262,8 @@ capturas ADB. O encaminhamento de um toque físico pelo viewer `view` foi
 confirmado no teste posterior descrito abaixo; teclado contínuo, controles de jogo,
 alternância de foco e estabilidade prolongada não foram validados. O track de
 áudio Android não comprova som audível no host. A renderização observada foi
-SwiftShader software. O spike não inclui espera de boot, recuperação
-automática, atualização ou distribuição de imagens Android.
+SwiftShader software. O spike não inclui espera automática de boot, recuperação
+de sessão em execução, atualização ou distribuição de imagens Android.
 
 Na primeira tentativa de input, a janela de 900 px de altura não foi localizada
 no host cuja tela tem 768 px de altura. O limite do viewer foi então reduzido:
@@ -276,3 +286,21 @@ bytes em 5,27 s (0,19 MiB/s), primeiro byte em 386 ms, e encontrou NALs Annex-B
 SPS, PPS e de imagem. Foi uma única captura da tela Android; não mede decode,
 apresentação, latência ponta a ponta ou estabilidade prolongada. Container,
 volume e imagem foram removidos depois da coleta.
+
+## Correção do caminho de áudio com Android 13
+
+O teste Android 12 acima mostrou por que um sink-input ativo não bastava como
+prova: durante HELLO, o monitor HDMI capturou somente zeros. A fonte scrcpy
+`output` (`REMOTE_SUBMIX`) foi, portanto, removida do controlador. `playback`
+requer Android 13/API 33 ou superior; a imagem de teste foi fixada no digest
+`redroid/redroid@sha256:36d6d21bcf7e92d78eabaa6f1748e5cf0e9fb15176c0091794168be012c5c22e`.
+
+Com Native Audio HELLO tocando no Android 13 e scrcpy 3.3.4 executando
+`--audio-source=playback`, uma captura de 3 s do monitor HDMI a 48 kHz registrou
+98.304 amostras PCM intercaladas (2 canais), pico `640434624`, RMS `0,04817685`
+e 48.026 amostras não nulas. Isso prova que o stream Android 13 produziu sinal na saída
+HDMI durante o teste. O usuário confirmou ter ouvido o HELLO nos testes direto e
+integrado. O resultado não prova compatibilidade com todos os apps, nem
+qualidade/latência adequadas para jogos. O comando padrão do Drunk agora usa
+Android 13 e `playback`; a integração final pelo próprio comando ainda precisa
+ser repetida após a troca do digest.
