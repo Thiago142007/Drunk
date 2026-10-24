@@ -83,6 +83,36 @@ temporário para o laboratório; a opção deve ser fornecida em cada chamada de
 `start`. A publicação ADB fica restrita ao loopback do host, mas processos locais
 com acesso a esse endpoint ainda podem controlar o Android.
 
+## Próximo incremento: stream H.264 em Rust
+
+O caminho de screenshots valida a janela, mas não serve para jogos. O próximo
+experimento deve substituir a captura por processo/frame por uma leitura contínua
+de `adb exec-out screenrecord --output-format=h264 -`. A implementação AOSP do
+`screenrecord` confirma que o formato H.264 bruto aceita `-` como saída em
+stdout ([código AOSP](https://android.googlesource.com/platform/frameworks/av/+/297eaacfa6/cmds/screenrecord/screenrecord.cpp)).
+Isso ainda precisa ser confirmado contra a imagem redroid Android 12 usada aqui.
+
+Para preservar a implementação Rust, o processo Drunk deve ler o stream como
+bytes, separar NAL units, decodificá-las em Rust e converter os frames YUV 4:2:0
+para o buffer da janela `minifb`. O decoder Hibernia anuncia esse subconjunto
+progressivo 8-bit 4:2:0 e licença MIT ([repositório Hibernia](https://github.com/Djuffin/hibernia)).
+Há, porém, uma diferença de publicação: o crates.io oferece `hibernia` 0.1.0,
+enquanto a documentação atual do repositório descreve uma API 0.2.0. Antes de
+adotá-lo, comparar a API publicada com a atual e fixar uma versão ou commit
+revisável; não depender implicitamente de um crate não publicado.
+
+O experimento deve medir FPS entregue à janela, latência aproximada de captura
+até apresentação, uso de CPU e estabilidade durante vários minutos. Deve
+encerrar o processo `screenrecord` ao fechar a janela ou ocorrer erro. O limite
+de clipes do `screenrecord` pode exigir reinicialização supervisionada do stream.
+Não integrar scrcpy nem decoder C/C++ nesse marco. Se a combinação não sustentar
+uma taxa útil, registrar a medição e parar para uma decisão de arquitetura,
+mantendo `view` como prévia de diagnóstico.
+
+Este plano não demonstra áudio, aceleração gráfica, controle contínuo de teclas
+ou compatibilidade Roblox. O Android screenrecord é apenas a fonte de imagem;
+ele não substitui os gates de runtime, licenças e plataforma descritos na ADR.
+
 ## Limpeza do laboratório
 
 Executado após as verificações: `drunk redroid stop`, remoção do container
