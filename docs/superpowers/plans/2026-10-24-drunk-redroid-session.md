@@ -71,3 +71,16 @@ The redroid container was stopped after the check (Docker exit 137; volume and
 image preserved). This verifies audio-child cleanup on a viewer error path, but
 does not prove cleanup after the user closes the window; that check remains
 open.
+
+## Follow-up: three-run repeatability sample (2026-10-24)
+
+Ran three consecutive release sessions for 30 seconds each against the same
+Android 13 boot with Hello GL2 in the foreground. Each session exited 0 at
+384×672. Results were 447 frames / 29.95 s (14.93 updates/s), 448 / 29.93 s
+(14.97 updates/s), and 447 / 29.95 s (14.92 updates/s). CPU was 21% of one
+logical core in all three rounded `time` reports (5.50+1.17 s, 5.53+1.17 s,
+5.47+1.18 s); maximum RSS was 78,036, 78,232, and 77,868 KiB. The average
+preview update rate was 14.94/s. This samples short-run repeatability within
+one Android boot; it is not a long-duration, reboot-to-reboot, input-latency,
+Android-render-FPS, or game-performance result. The container was stopped
+afterward (Docker exit 137); its image and volume remain.
